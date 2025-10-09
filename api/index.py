@@ -2,6 +2,7 @@ from flask import Flask, request, jsonify, make_response
 from flask_cors import CORS
 import logging
 import os
+import sys
 from supabase import create_client, Client
 from dotenv import load_dotenv
 
@@ -42,8 +43,25 @@ CORS(
     origins=cors_origins,
 )
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
+# Check if running on Vercel
+IS_VERCEL = os.environ.get('VERCEL') == '1'
+
+# Configure logging based on environment
+if IS_VERCEL:
+    # Production: Minimal logging to stdout, only real errors to stderr
+    logging.basicConfig(
+        level=logging.WARNING,  # Only log warnings and errors
+        stream=sys.stdout,
+        format='[%(levelname)s] %(message)s'
+    )
+else:
+    # Development: Verbose logging
+    logging.basicConfig(
+        level=logging.INFO,
+        stream=sys.stdout,
+        format='[%(levelname)s] %(name)s: %(message)s'
+    )
+
 logger = logging.getLogger(__name__)
 
 # Check if we're in production
@@ -54,7 +72,8 @@ def check_supabase_connection():
     try:
         # Try to make a simple query to test connection
         response = supabase.auth.get_session()
-        logger.info("✅ Supabase connection successful")
+        if not IS_VERCEL:
+            logger.info("✅ Supabase connection successful")
         return True
     except Exception as e:
         logger.error(f"❌ Supabase connection failed: {str(e)}")
@@ -88,7 +107,10 @@ def login():
 
         if response.user and response.session:
             access_token = response.session.access_token
-            logger.info(f"✅ User {email} logged in successfully")
+            
+            # ℹ️ Only log in development
+            if not IS_VERCEL:
+                logger.info(f"✅ User {email} logged in successfully")
             
             flask_response = make_response(jsonify({
                 "message": "Login successful",
@@ -111,9 +133,13 @@ def login():
             )
             return flask_response
         else:
+            # ℹ️ Failed login is INFO, not an error - user just typed wrong password
+            if not IS_VERCEL:
+                logger.info(f"ℹ️ Failed login attempt for {email}")
             return jsonify({"error": "Authentication failed"}), 401
 
     except Exception as e:
+        # ❌ THIS is a real error (server/network issue, not user mistake)
         logger.error(f"❌ Login error: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
@@ -124,16 +150,16 @@ def register():
         data = request.get_json()
         
         if not data:
-            return jsonify({"error": "No data provided"}), 400
+            return make_response(jsonify({"error": "No data provided"}), 400)
         
         email = data.get("email")
         password = data.get("password")
         
         if not email or not password:
-            return jsonify({"error": "Email and password are required"}), 400
+            return make_response(jsonify({"error": "Email and password are required"}), 400)
         
         if len(password) < 6:
-            return jsonify({"error": "Password must be at least 6 characters long"}), 400
+            return make_response(jsonify({"error": "Password must be at least 6 characters long"}), 400)
         
         # Register user with Supabase
         response = supabase.auth.sign_up({
@@ -142,12 +168,13 @@ def register():
         })
         
         if response.user:
-            logger.info(f"✅ User {email} registered successfully")
+            if not IS_VERCEL:
+                logger.info(f"✅ User {email} registered successfully")
             
             # Check if user needs email confirmation
             if response.session:
                 # User is automatically logged in (email confirmation disabled)
-                return jsonify({
+                return make_response(jsonify({
                     "message": "Registration successful! You are now logged in.",
                     "user": {
                         "id": response.user.id,
@@ -156,10 +183,10 @@ def register():
                     },
                     "access_token": response.session.access_token,
                     "email_confirmed": True
-                }), 201
+                }), 201)
             else:
                 # User needs to confirm email
-                return jsonify({
+                return make_response(jsonify({
                     "message": "Registration successful! Please check your email to verify your account before logging in.",
                     "user": {
                         "id": response.user.id,
@@ -167,19 +194,20 @@ def register():
                         "created_at": response.user.created_at
                     },
                     "email_confirmed": False
-                }), 201
+                }), 201)
         else:
-            return jsonify({"error": "Registration failed"}), 400
+            return make_response(jsonify({"error": "Registration failed"}), 400)
             
     except Exception as e:
         logger.error(f"❌ Registration error: {str(e)}")
-        return jsonify({"error": str(e)}), 500
+        return make_response(jsonify({"error": str(e)}), 500)
 
 @app.route("/api/validate-session", methods=["GET"])
 def validate_session():
     try:
         token = request.cookies.get("sb-access-token")
         if not token:
+            # ℹ️ No token is normal - user isn't logged in
             return jsonify({"error": "No token"}), 401
 
         user = supabase.auth.get_user(token)
@@ -195,9 +223,11 @@ def validate_session():
                 }
             }), 200
         else:
+            # ℹ️ Invalid token is normal - session expired
             return jsonify({"error": "Invalid session"}), 401
 
     except Exception as e:
+        # ❌ Real error - Supabase connection issue
         logger.error(f"❌ Session validation error: {str(e)}")
         return jsonify({"error": str(e)}), 500
     
@@ -270,7 +300,8 @@ def reset_password():
             }
         )
         
-        logger.info(f"✅ Password reset email sent to: {email}")
+        if not IS_VERCEL:
+            logger.info(f"✅ Password reset email sent to: {email}")
         return jsonify({
             "message": "Password reset email sent successfully",
             "email": email
@@ -303,6 +334,9 @@ def update_password():
         response = supabase.auth.set_session(access_token, refresh_token)
         
         if not response.user:
+            # ℹ️ Invalid token is not an error - user's link expired
+            if not IS_VERCEL:
+                logger.info(f"ℹ️ Invalid or expired reset token attempt")
             return jsonify({"error": "Invalid or expired reset token"}), 401
         
         # Update the user's password
@@ -311,7 +345,8 @@ def update_password():
         })
         
         if update_response.user:
-            logger.info(f"✅ Password updated successfully for user: {update_response.user.email}")
+            if not IS_VERCEL:
+                logger.info(f"✅ Password updated successfully for user: {update_response.user.email}")
             
             # Create a new session for the user
             flask_response = make_response(jsonify({
