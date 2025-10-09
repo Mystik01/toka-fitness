@@ -82,6 +82,83 @@ def check_supabase_connection():
 # Check connection on startup
 check_supabase_connection()
 
+# Middleware to detect browser requests and redirect
+@app.before_request
+def redirect_browser_requests():
+    """Redirect browser requests to frontend, except for /api/python test endpoint"""
+    # Skip for /api/python test endpoint
+    if request.path == '/api/python':
+        return None
+    
+    # Check if request is from a browser (has Accept header with text/html)
+    accept_header = request.headers.get('Accept', '')
+    is_browser_request = 'text/html' in accept_header
+    
+    # Only redirect GET requests from browsers
+    if request.method == 'GET' and is_browser_request:
+        # Determine frontend URL based on environment
+        if IS_VERCEL:
+            # In production, redirect to the root domain
+            frontend_url = request.url_root.replace('/api', '')
+        else:
+            # In development, redirect to Next.js dev server
+            frontend_url = 'http://localhost:3001'
+        
+        return f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta http-equiv="refresh" content="3;url={frontend_url}">
+            <style>
+                body {{
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    height: 100vh;
+                    margin: 0;
+                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                    color: white;
+                    text-align: center;
+                }}
+                .container {{
+                    max-width: 500px;
+                    padding: 2rem;
+                    background: rgba(255, 255, 255, 0.1);
+                    backdrop-filter: blur(10px);
+                    border-radius: 20px;
+                    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+                }}
+                h1 {{ font-size: 2rem; margin-bottom: 1rem; }}
+                p {{ font-size: 1.1rem; margin-bottom: 1.5rem; opacity: 0.9; }}
+                .emoji {{ font-size: 4rem; margin-bottom: 1rem; }}
+                a {{
+                    display: inline-block;
+                    padding: 12px 24px;
+                    background: white;
+                    color: #667eea;
+                    text-decoration: none;
+                    border-radius: 8px;
+                    font-weight: 600;
+                    transition: transform 0.2s;
+                }}
+                a:hover {{ transform: scale(1.05); }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="emoji">🚫</div>
+                <h1>You Shouldn't Be Here!</h1>
+                <p>You're in the wrong place, don't worry I'll redirect you just wait a sec.</p>
+                <p>Redirecting you in 3 seconds...</p>
+                <a href="{frontend_url}">Click here if not redirected</a>
+            </div>
+        </body>
+        </html>
+        """, 200
+    
+    return None
+
 @app.route("/api/python")
 def hello_world():
     return "<p>Hello, World!</p>"
