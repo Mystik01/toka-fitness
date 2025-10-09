@@ -1,5 +1,23 @@
 // lib/auth.ts
 
+// Get the correct API URL based on environment
+function getApiUrl(): string {
+  // In production/Vercel, use relative URLs since Flask is at /api/*
+  if (typeof window !== 'undefined') {
+    // Client-side
+    if (process.env.NODE_ENV === 'production' || process.env.NEXT_PUBLIC_VERCEL_ENV) {
+      return ''; // Relative URLs work on Vercel
+    }
+    return process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5328';
+  } else {
+    // Server-side
+    if (process.env.VERCEL || process.env.NODE_ENV === 'production') {
+      return ''; // Relative URLs work on Vercel
+    }
+    return process.env.API_URL || 'http://localhost:5328';
+  }
+}
+
 // Helper function to format error messages for better UX
 function formatAuthError(errorMessage: string): string {
   const message = errorMessage.toLowerCase();
@@ -62,7 +80,8 @@ function formatAuthError(errorMessage: string): string {
 }
 
 export async function login(email: string, password: string) {
-  const res = await fetch("/api/auth/login", {
+  const apiUrl = getApiUrl();
+  const res = await fetch(`${apiUrl}/api/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     credentials: "include", // Important for cookies
@@ -78,7 +97,8 @@ export async function login(email: string, password: string) {
 }
 
 export async function register(email: string, password: string) {
-  const res = await fetch("/api/auth/register", {
+  const apiUrl = getApiUrl();
+  const res = await fetch(`${apiUrl}/api/register`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     credentials: "include", // Important for cookies
@@ -94,7 +114,8 @@ export async function register(email: string, password: string) {
 }
 
 export async function validateSession() {
-  const res = await fetch("/api/auth/validate-session", {
+  const apiUrl = getApiUrl();
+  const res = await fetch(`${apiUrl}/api/validate-session`, {
     method: "GET",
     credentials: "include", // important for cookies
   });
@@ -108,7 +129,8 @@ export async function validateSession() {
 }
 
 export async function signOut() {
-  const res = await fetch("/api/auth/logout", {
+  const apiUrl = getApiUrl();
+  const res = await fetch(`${apiUrl}/api/logout`, {
     method: "POST",
     credentials: "include", // important for cookies
   });
@@ -123,7 +145,8 @@ export async function signOut() {
 
 // Get user data without validation (assumes user is already authenticated)
 export async function getUserData() {
-  const res = await fetch("/api/me", {
+  const apiUrl = getApiUrl();
+  const res = await fetch(`${apiUrl}/api/me`, {
     method: "GET",
     credentials: "include",
   });
@@ -137,7 +160,8 @@ export async function getUserData() {
 }
 
 export async function forgotPassword(email: string) {
-  const res = await fetch("/api/auth/forgot-password", {
+  const apiUrl = getApiUrl();
+  const res = await fetch(`${apiUrl}/api/reset-password`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     credentials: "include",
@@ -153,7 +177,8 @@ export async function forgotPassword(email: string) {
 }
 
 export async function resetPassword(accessToken: string, refreshToken: string, newPassword: string) {
-  const res = await fetch("/api/auth/update-password", {
+  const apiUrl = getApiUrl();
+  const res = await fetch(`${apiUrl}/api/update-password`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     credentials: "include",

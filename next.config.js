@@ -11,6 +11,20 @@ const nextConfig = {
       },
     ]
   },
+  redirects: async () => {
+    return [
+      {
+        source: '/login',
+        destination: '/auth/login',
+        permanent: false,
+      },
+      {
+        source: '/register',
+        destination: '/auth/register',
+        permanent: false,
+      },
+    ]
+  },
 }
 
 module.exports = nextConfig

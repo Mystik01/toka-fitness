@@ -1,11 +1,28 @@
 // lib/apiClient.ts
-import dotenv from "dotenv";
-dotenv.config();
+
+// Get the correct API URL based on environment
+function getApiUrl(): string {
+  // In production/Vercel, use relative URLs since Flask is at /api/*
+  if (typeof window !== 'undefined') {
+    // Client-side
+    if (process.env.NODE_ENV === 'production' || process.env.NEXT_PUBLIC_VERCEL_ENV) {
+      return ''; // Relative URLs work on Vercel
+    }
+    return process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5328';
+  } else {
+    // Server-side
+    if (process.env.VERCEL || process.env.NODE_ENV === 'production') {
+      return ''; // Relative URLs work on Vercel
+    }
+    return process.env.API_URL || 'http://localhost:5328';
+  }
+}
+
 export class ApiClient {
   private baseUrl: string;
 
-  constructor(baseUrl: string = process.env.API_URL ?? "http://localhost:5000") {
-    this.baseUrl = baseUrl;
+  constructor(baseUrl?: string) {
+    this.baseUrl = baseUrl || getApiUrl();
   }
 
   private async request(endpoint: string, options?: RequestInit) {
@@ -26,29 +43,29 @@ export class ApiClient {
 
   // 🔹 Auth endpoints
   async login(email: string, password: string) {
-    return this.request("/login", {
+    return this.request("/api/login", {
       method: "POST",
       body: JSON.stringify({ email, password }),
     });
   }
 
   async register(email: string, password: string) {
-    return this.request("/register", {
+    return this.request("/api/register", {
       method: "POST",
       body: JSON.stringify({ email, password }),
     });
   }
 
   async validateSession() {
-    return this.request("/validate-session", { method: "GET" });
+    return this.request("/api/validate-session", { method: "GET" });
   }
 
   async getMe() {
-    return this.request("/me", { method: "GET" });
+    return this.request("/api/me", { method: "GET" });
   }
 
   async updateMe(data: Record<string, any>) {
-    return this.request("/me", {
+    return this.request("/api/me", {
       method: "PATCH",
       body: JSON.stringify(data),
     });
