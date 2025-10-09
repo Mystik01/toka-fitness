@@ -2,7 +2,6 @@ from flask import Flask, request, jsonify, make_response
 from flask_cors import CORS
 from connect import supabase
 import logging
-import supabase as super
 import os
 
 app = Flask(__name__)
