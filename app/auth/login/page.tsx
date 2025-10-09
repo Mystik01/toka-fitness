@@ -103,7 +103,10 @@ export default function Login() {
       // Reset failed attempts on successful login
       setFailedAttempts(0);
       setSuccess(true);
-      router.push("/dashboard"); // redirect on success
+      
+      // Get redirect parameter from URL, default to /dashboard
+      const redirectTo = searchParams.get('redirect') || '/dashboard';
+      router.push(redirectTo);
     } catch (err: any) {
       console.error(err);
       setError(err.message || "Login failed");
