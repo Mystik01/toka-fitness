@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from 'react';
-import { User, Bell, Shield, Palette, Globe, User as UserIcon, Mail, Calendar, Loader2 } from 'lucide-react';
+import { User, Bell, Shield, Palette, Globe, User as UserIcon, Mail, Calendar, Loader2, Edit3, Check, X } from 'lucide-react';
 import { getMe } from '@/app/lib/User';
 
 type Tab = 'general' | 'account';
@@ -9,6 +9,7 @@ type Tab = 'general' | 'account';
 interface UserData {
   id: string;
   email: string;
+  displayName?: string;
   created_at: string;
   last_sign_in_at?: string;
 }
@@ -18,6 +19,11 @@ export default function SettingsPage() {
   const [userData, setUserData] = useState<UserData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+
+  // Display name editing state
+  const [isEditingDisplayName, setIsEditingDisplayName] = useState(false);
+  const [displayNameInput, setDisplayNameInput] = useState('');
+  const [isSavingDisplayName, setIsSavingDisplayName] = useState(false);
 
   // General Settings State
   const [emailNotifications, setEmailNotifications] = useState(true);
@@ -32,6 +38,7 @@ export default function SettingsPage() {
         setLoading(true);
         const data = await getMe();
         setUserData(data as UserData);
+        setDisplayNameInput(data.displayName || '');
       } catch (err: any) {
         setError(err.message || 'Failed to load user data');
       } finally {
@@ -57,6 +64,41 @@ export default function SettingsPage() {
   const handleSaveGeneral = () => {
     // TODO: Implement save to backend
     alert('General settings saved! (This will be connected to backend later)');
+  };
+
+  const handleSaveDisplayName = async () => {
+    try {
+      setIsSavingDisplayName(true);
+      // TODO: Implement API call to update display name
+      // await updateMe({ displayName: displayNameInput });
+      
+      // For now, just update local state
+      if (userData) {
+        setUserData({ ...userData, displayName: displayNameInput });
+      }
+      setIsEditingDisplayName(false);
+      
+      // TODO: Remove this alert when backend is connected
+      alert('Display name updated! (This will be connected to backend later)');
+    } catch (err) {
+      alert('Failed to update display name');
+    } finally {
+      setIsSavingDisplayName(false);
+    }
+  };
+
+  const handleCancelDisplayName = () => {
+    setDisplayNameInput(userData?.displayName || '');
+    setIsEditingDisplayName(false);
+  };
+
+  const startEditingDisplayName = () => {
+    setIsEditingDisplayName(true);
+    // Auto-focus when there's no display name set
+    setTimeout(() => {
+      const input = document.getElementById('displayNameInput');
+      input?.focus();
+    }, 100);
   };
 
   return (
@@ -247,6 +289,72 @@ export default function SettingsPage() {
                       Profile Information
                     </h3>
                     <div className="space-y-4">
+                      {/* Display Name */}
+                      <div className={`p-4 rounded-lg border-2 transition-all ${
+                        !userData.displayName && !isEditingDisplayName 
+                          ? 'bg-yellow-50 border-yellow-200 border-dashed' 
+                          : 'bg-gray-50 border-transparent'
+                      }`}>
+                        <div className="flex items-center">
+                          <UserIcon className="w-5 h-5 text-gray-400 mr-3" />
+                          <div className="flex-1">
+                            <p className="text-sm text-gray-500">Display Name</p>
+                            {isEditingDisplayName ? (
+                              <div className="flex items-center gap-2 mt-1">
+                                <input
+                                  id="displayNameInput"
+                                  type="text"
+                                  value={displayNameInput}
+                                  onChange={(e) => setDisplayNameInput(e.target.value)}
+                                  placeholder="Enter your display name"
+                                  className="flex-1 px-3 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                  disabled={isSavingDisplayName}
+                                />
+                                <button
+                                  onClick={handleSaveDisplayName}
+                                  disabled={isSavingDisplayName || !displayNameInput.trim()}
+                                  className="p-1 text-green-600 hover:bg-green-100 rounded disabled:opacity-50 disabled:cursor-not-allowed"
+                                  title="Save"
+                                >
+                                  <Check className="w-4 h-4" />
+                                </button>
+                                <button
+                                  onClick={handleCancelDisplayName}
+                                  disabled={isSavingDisplayName}
+                                  className="p-1 text-red-600 hover:bg-red-100 rounded disabled:opacity-50"
+                                  title="Cancel"
+                                >
+                                  <X className="w-4 h-4" />
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="flex items-center justify-between">
+                                <div>
+                                  {userData.displayName ? (
+                                    <p className="font-medium text-gray-900">{userData.displayName}</p>
+                                  ) : (
+                                    <div>
+                                      <p className="font-medium text-yellow-700">Not set</p>
+                                      <p className="text-xs text-yellow-600 mt-1">
+                                        👋 Add a display name to personalize your profile
+                                      </p>
+                                    </div>
+                                  )}
+                                </div>
+                                <button
+                                  onClick={startEditingDisplayName}
+                                  className="p-2 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors"
+                                  title="Edit display name"
+                                >
+                                  <Edit3 className="w-4 h-4" />
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Email */}
                       <div className="flex items-center p-4 bg-gray-50 rounded-lg">
                         <Mail className="w-5 h-5 text-gray-400 mr-3" />
                         <div className="flex-1">
@@ -255,6 +363,7 @@ export default function SettingsPage() {
                         </div>
                       </div>
 
+                      {/* User ID */}
                       <div className="flex items-center p-4 bg-gray-50 rounded-lg">
                         <UserIcon className="w-5 h-5 text-gray-400 mr-3" />
                         <div className="flex-1">
@@ -263,6 +372,7 @@ export default function SettingsPage() {
                         </div>
                       </div>
 
+                      {/* Member Since */}
                       <div className="flex items-center p-4 bg-gray-50 rounded-lg">
                         <Calendar className="w-5 h-5 text-gray-400 mr-3" />
                         <div className="flex-1">
@@ -271,6 +381,7 @@ export default function SettingsPage() {
                         </div>
                       </div>
 
+                      {/* Last Sign In */}
                       {userData.last_sign_in_at && (
                         <div className="flex items-center p-4 bg-gray-50 rounded-lg">
                           <Calendar className="w-5 h-5 text-gray-400 mr-3" />
