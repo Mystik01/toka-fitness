@@ -4,16 +4,25 @@ import logging
 import os
 from supabase import create_client, Client
 from dotenv import load_dotenv
-load_dotenv()
 
+# Load .env file only in local development
+load_dotenv()
 
 app = Flask(__name__)
 
+# Get environment variables with validation
+SUPABASE_URL = os.environ.get("SUPABASE_URL")
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
+
+# Validate required environment variables
+if not SUPABASE_URL or not SUPABASE_KEY:
+    logging.basicConfig(level=logging.INFO)
+    logger = logging.getLogger(__name__)
+    logger.error("❌ Missing required environment variables: SUPABASE_URL and/or SUPABASE_KEY")
+    raise ValueError("SUPABASE_URL and SUPABASE_KEY environment variables are required")
+
 # Initialize Supabase client directly
-supabase: Client = create_client(
-    os.environ.get("SUPABASE_URL"),
-    os.environ.get("SUPABASE_KEY")
-)
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # Configure CORS for both development and production
 cors_origins = ["http://localhost:3001"]  # Development
@@ -96,7 +105,7 @@ def login():
                 "sb-access-token",
                 access_token,
                 httponly=True,
-                secure=is_production,  # True in production for HTTPS
+                secure=is_production,
                 samesite="Lax",
                 max_age=3600
             )
@@ -165,8 +174,6 @@ def register():
     except Exception as e:
         logger.error(f"❌ Registration error: {str(e)}")
         return jsonify({"error": str(e)}), 500
-        
-
 
 @app.route("/api/validate-session", methods=["GET"])
 def validate_session():
@@ -234,8 +241,7 @@ def logout():
     except Exception as e:
         logger.error(f"❌ Logout error: {str(e)}")
         return jsonify({"error": str(e)}), 500
-    
-    
+
 @app.route("/api/reset-password", methods=["POST"])
 def reset_password():
     """Handle password reset email sending"""
@@ -260,7 +266,7 @@ def reset_password():
         response = supabase.auth.reset_password_for_email(
             email,
             {
-                "redirect_to": "http://localhost:3001/auth/reset-password"  # Where users go after clicking email link
+                "redirect_to": "http://localhost:3001/auth/reset-password"
             }
         )
         
@@ -324,7 +330,7 @@ def update_password():
                     "sb-access-token",
                     response.session.access_token,
                     httponly=True,
-                    secure=is_production,  # True in production
+                    secure=is_production,
                     samesite="Lax",
                     max_age=3600
                 )
@@ -337,11 +343,9 @@ def update_password():
         logger.error(f"❌ Update password error: {str(e)}")
         return jsonify({"error": "Failed to update password. Please try again."}), 500
 
-# Vercel serverless function entry point
-if __name__ != "__main__":
-    # This is the entry point for Vercel
-    handler = app
-else:
-    # This runs in development
-    if __name__ == "__main__":
-        app.run(debug=True, port=5328)
+# For local development
+if __name__ == "__main__":
+    app.run(debug=True, port=5328)
+
+# Vercel serverless function handler
+app = app
