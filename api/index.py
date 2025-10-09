@@ -1,6 +1,339 @@
-from flask import Flask
+from flask import Flask, request, jsonify, make_response
+from flask_cors import CORS
+from connect import supabase
+import logging
+import supabase as super
+import os
+
 app = Flask(__name__)
+
+# Configure CORS for both development and production
+cors_origins = ["http://localhost:3001"]  # Development
+if os.environ.get('VERCEL_URL'):
+    cors_origins.append(f"https://{os.environ.get('VERCEL_URL')}")
+if os.environ.get('VERCEL_PROJECT_PRODUCTION_URL'):
+    cors_origins.append(f"https://{os.environ.get('VERCEL_PROJECT_PRODUCTION_URL')}")
+# Add your custom domain if you have one
+cors_origins.extend([
+    "https://*.vercel.app",
+    "https://your-custom-domain.com"  # Replace with your actual domain if you have one
+])
+
+CORS(
+    app,
+    supports_credentials=True,
+    origins=cors_origins,
+)
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Check if we're in production
+is_production = os.environ.get('VERCEL_ENV') == 'production' or os.environ.get('NODE_ENV') == 'production'
+
+def check_supabase_connection():
+    """Check if Supabase connection is working"""
+    try:
+        # Try to make a simple query to test connection
+        response = supabase.auth.get_session()
+        logger.info("✅ Supabase connection successful")
+        return True
+    except Exception as e:
+        logger.error(f"❌ Supabase connection failed: {str(e)}")
+        return False
+
+# Check connection on startup
+check_supabase_connection()
 
 @app.route("/api/python")
 def hello_world():
     return "<p>Hello, World!</p>"
+
+@app.route("/api/login", methods=["POST"])
+def login():
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({"error": "No data provided"}), 400
+        
+        email = data.get("email")
+        password = data.get("password")
+        
+        if not email or not password:
+            return jsonify({"error": "Email and password are required"}), 400
+
+        response = supabase.auth.sign_in_with_password({
+            "email": email,
+            "password": password
+        })
+
+        if response.user and response.session:
+            access_token = response.session.access_token
+            logger.info(f"✅ User {email} logged in successfully")
+            
+            flask_response = make_response(jsonify({
+                "message": "Login successful",
+                "user": {
+                    "id": response.user.id, 
+                    "email": response.user.email,
+                    "created_at": response.user.created_at,
+                    "last_sign_in_at": response.user.last_sign_in_at
+                }
+            }), 200)
+            
+            # ✅ Set cookie for session
+            flask_response.set_cookie(
+                "sb-access-token",
+                access_token,
+                httponly=True,
+                secure=is_production,  # True in production for HTTPS
+                samesite="Lax",
+                max_age=3600
+            )
+            return flask_response
+        else:
+            return jsonify({"error": "Authentication failed"}), 401
+
+    except Exception as e:
+        logger.error(f"❌ Login error: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/register", methods=["POST"])
+def register():
+    """Handle user registration with email and password"""
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({"error": "No data provided"}), 400
+        
+        email = data.get("email")
+        password = data.get("password")
+        
+        if not email or not password:
+            return jsonify({"error": "Email and password are required"}), 400
+        
+        if len(password) < 6:
+            return jsonify({"error": "Password must be at least 6 characters long"}), 400
+        
+        # Register user with Supabase
+        response = supabase.auth.sign_up({
+            "email": email,
+            "password": password
+        })
+        
+        if response.user:
+            logger.info(f"✅ User {email} registered successfully")
+            
+            # Check if user needs email confirmation
+            if response.session:
+                # User is automatically logged in (email confirmation disabled)
+                return jsonify({
+                    "message": "Registration successful! You are now logged in.",
+                    "user": {
+                        "id": response.user.id,
+                        "email": response.user.email,
+                        "created_at": response.user.created_at
+                    },
+                    "access_token": response.session.access_token,
+                    "email_confirmed": True
+                }), 201
+            else:
+                # User needs to confirm email
+                return jsonify({
+                    "message": "Registration successful! Please check your email to verify your account before logging in.",
+                    "user": {
+                        "id": response.user.id,
+                        "email": response.user.email,
+                        "created_at": response.user.created_at
+                    },
+                    "email_confirmed": False
+                }), 201
+        else:
+            return jsonify({"error": "Registration failed"}), 400
+            
+    except Exception as e:
+        logger.error(f"❌ Registration error: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+        
+
+
+@app.route("/api/validate-session", methods=["GET"])
+def validate_session():
+    try:
+        token = request.cookies.get("sb-access-token")
+        if not token:
+            return jsonify({"error": "No token"}), 401
+
+        user = supabase.auth.get_user(token)
+
+        if user and user.user:
+            return jsonify({
+                "message": "Valid session",
+                "user": {
+                    "id": user.user.id,
+                    "email": user.user.email,
+                    "created_at": user.user.created_at,
+                    "last_sign_in_at": user.user.last_sign_in_at
+                }
+            }), 200
+        else:
+            return jsonify({"error": "Invalid session"}), 401
+
+    except Exception as e:
+        logger.error(f"❌ Session validation error: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+    
+@app.route("/api/me", methods=["GET"])
+def get_me():
+    try:
+        token = request.cookies.get("sb-access-token")
+        if not token:
+            return jsonify({"error": "Not logged in"}), 401
+
+        user = supabase.auth.get_user(token)
+
+        if user and user.user:
+            return jsonify({
+                "id": user.user.id,
+                "email": user.user.email,
+                "created_at": user.user.created_at,
+                "last_sign_in_at": user.user.last_sign_in_at
+            }), 200
+        else:
+            return jsonify({"error": "Invalid session"}), 401
+            
+    except Exception as e:
+        logger.error(f"❌ Get user error: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+    
+@app.route("/api/logout", methods=["POST"])
+def logout():
+    try:
+        response = make_response(jsonify({"message": "Logged out successfully"}), 200)
+        response.set_cookie(
+            "sb-access-token", 
+            "", 
+            expires=0, 
+            httponly=True, 
+            samesite="Lax", 
+            secure=is_production
+        )
+        return response
+        
+    except Exception as e:
+        logger.error(f"❌ Logout error: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+    
+    
+@app.route("/api/reset-password", methods=["POST"])
+def reset_password():
+    """Handle password reset email sending"""
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({"error": "No data provided"}), 400
+        
+        email = data.get("email")
+        
+        if not email:
+            return jsonify({"error": "Email is required"}), 400
+        
+        # Validate email format
+        import re
+        email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+        if not re.match(email_pattern, email):
+            return jsonify({"error": "Invalid email format"}), 400
+        
+        # Send password reset email via Supabase
+        response = supabase.auth.reset_password_for_email(
+            email,
+            {
+                "redirect_to": "http://localhost:3001/auth/reset-password"  # Where users go after clicking email link
+            }
+        )
+        
+        logger.info(f"✅ Password reset email sent to: {email}")
+        return jsonify({
+            "message": "Password reset email sent successfully",
+            "email": email
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"❌ Reset password error: {str(e)}")
+        return jsonify({"error": "Failed to send reset email. Please try again."}), 500
+
+@app.route("/api/update-password", methods=["POST"])
+def update_password():
+    """Handle password update with reset token"""
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({"error": "No data provided"}), 400
+        
+        access_token = data.get("access_token")
+        refresh_token = data.get("refresh_token")
+        new_password = data.get("password")
+        
+        if not access_token or not refresh_token or not new_password:
+            return jsonify({"error": "Access token, refresh token, and new password are required"}), 400
+        
+        if len(new_password) < 6:
+            return jsonify({"error": "Password must be at least 6 characters long"}), 400
+        
+        # Set the session with the tokens from the reset email
+        response = supabase.auth.set_session(access_token, refresh_token)
+        
+        if not response.user:
+            return jsonify({"error": "Invalid or expired reset token"}), 401
+        
+        # Update the user's password
+        update_response = supabase.auth.update_user({
+            "password": new_password
+        })
+        
+        if update_response.user:
+            logger.info(f"✅ Password updated successfully for user: {update_response.user.email}")
+            
+            # Create a new session for the user
+            flask_response = make_response(jsonify({
+                "message": "Password updated successfully",
+                "user": {
+                    "id": update_response.user.id,
+                    "email": update_response.user.email,
+                    "created_at": update_response.user.created_at,
+                    "last_sign_in_at": update_response.user.last_sign_in_at
+                }
+            }), 200)
+            
+            # Set new session cookie
+            if response.session and response.session.access_token:
+                flask_response.set_cookie(
+                    "sb-access-token",
+                    response.session.access_token,
+                    httponly=True,
+                    secure=is_production,  # True in production
+                    samesite="Lax",
+                    max_age=3600
+                )
+            
+            return flask_response
+        else:
+            return jsonify({"error": "Failed to update password"}), 400
+            
+    except Exception as e:
+        logger.error(f"❌ Update password error: {str(e)}")
+        return jsonify({"error": "Failed to update password. Please try again."}), 500
+
+# Vercel serverless function entry point
+if __name__ != "__main__":
+    # This is the entry point for Vercel
+    handler = app
+else:
+    # This runs in development
+    if __name__ == "__main__":
+        app.run(debug=True, port=5328)
