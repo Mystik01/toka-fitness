@@ -108,7 +108,7 @@ def redirect_browser_requests():
         <!DOCTYPE html>
         <html>
         <head>
-            <meta http-equiv="refresh" content="3;url={frontend_url}">
+            <meta http-equiv="refresh" content="5;url={frontend_url}">
             <style>
                 body {{
                     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -150,7 +150,7 @@ def redirect_browser_requests():
                 <div class="emoji">🚫</div>
                 <h1>You Shouldn't Be Here!</h1>
                 <p>You're in the wrong place, don't worry I'll redirect you just wait a sec.</p>
-                <p>Redirecting you in 3 seconds...</p>
+                <p>Redirecting you in 5 seconds...</p>
                 <a href="{frontend_url}">Click here if not redirected</a>
             </div>
         </body>
