@@ -1,10 +1,19 @@
 from flask import Flask, request, jsonify, make_response
 from flask_cors import CORS
-from connect import supabase
 import logging
 import os
+from supabase import create_client, Client
+from dotenv import load_dotenv
+load_dotenv()
+
 
 app = Flask(__name__)
+
+# Initialize Supabase client directly
+supabase: Client = create_client(
+    os.environ.get("SUPABASE_URL"),
+    os.environ.get("SUPABASE_KEY")
+)
 
 # Configure CORS for both development and production
 cors_origins = ["http://localhost:3001"]  # Development
