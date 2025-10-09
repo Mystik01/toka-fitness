@@ -8,6 +8,7 @@ type SidebarProps = {
 
 const navItems = [
     { label: "Home", key: "dashboard" },
+    { label: "Classes", key: "dashboard/classes" },
     { label: "Workouts", key: "dashboard/workouts" },
     { label: "Nutrition", key: "dashboard/nutrition" },
 ];
