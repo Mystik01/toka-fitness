@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import Sidebar from "@/app/ui/dashboard/NavBar";
+import NavBar from "@/app/ui/dashboard/NavBar";
 import { getUserData, signOut } from '@/app/lib/auth';
 
 interface User {
@@ -19,6 +19,7 @@ export default function DashboardLayout({
 }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const router = useRouter();
 
   useEffect(() => {
@@ -49,6 +50,15 @@ export default function DashboardLayout({
     }
   }, [router]);
 
+  const toggleMobileMenu = useCallback(() => {
+    setMobileMenuOpen(prev => !prev);
+  }, []);
+
+  // Close mobile menu when route changes
+  useEffect(() => {
+    setMobileMenuOpen(false);
+  }, [children]);
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -62,28 +72,18 @@ export default function DashboardLayout({
 
   return (
     <div className="flex h-screen bg-gray-100">
-      <Sidebar />
+      {/* Navigation Component */}
+      <NavBar 
+        user={user}
+        onLogout={handleLogout}
+        isOpen={mobileMenuOpen}
+        onToggle={toggleMobileMenu}
+      />
+      
+      {/* Main content area */}
       <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Top header */}
-        <header className="bg-white shadow-sm border-b px-6 py-4">
-          <div className="flex justify-between items-center">
-            <h1 className="text-2xl font-semibold text-gray-900">Dashboard</h1>
-            <div className="flex items-center space-x-4">
-              <span className="text-sm text-gray-600">
-                Welcome, {user?.email || 'User'}
-              </span>
-              <button
-                onClick={handleLogout}
-                className="px-4 py-2 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
-              >
-                Logout
-              </button>
-            </div>
-          </div>
-        </header>
-        
-        {/* Main content area */}
-        <main className="flex-1 overflow-auto p-6">
+        {/* Main content */}
+        <main className="flex-1 overflow-auto p-4 lg:p-6">
           {children}
         </main>
       </div>
