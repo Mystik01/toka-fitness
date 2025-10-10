@@ -34,7 +34,7 @@ if os.environ.get('VERCEL_PROJECT_PRODUCTION_URL'):
 # Add your custom domain if you have one
 cors_origins.extend([
     "https://*.vercel.app",
-    "https://your-custom-domain.com"  # Replace with your actual domain if you have one
+    "https://ommix.xyz"  # Replace with your actual domain if you have one
 ])
 
 CORS(
