@@ -15,7 +15,7 @@ function useEmailForwardRedirect() {
 
     if (tokenHash && type) {
       // Get environment variables for dynamic URL construction
-      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+      const supabaseUrl = process.env.SUPABASE_URL;
       const currentDomain = typeof window !== 'undefined' ? window.location.origin : '';
       
       // Build the Supabase verification URL dynamically

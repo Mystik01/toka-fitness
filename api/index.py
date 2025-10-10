@@ -289,7 +289,7 @@ def register():
             "email": email,
             "password": password,
             "options": {
-                "email_redirect_to": f"{get_frontend_url()}/auth/callback"
+                "email_redirect_to": f"{get_frontend_url()}"
             }
         })
         
