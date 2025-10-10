@@ -388,6 +388,111 @@ def reset_password():
         logger.error(f"❌ Reset password error: {str(e)}")
         return jsonify({"error": "Failed to send reset email. Please try again."}), 500
 
+@app.route("/api/verify-email", methods=["POST"])
+def verify_email():
+    """Handle email verification with 6-digit code"""
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({"error": "No data provided"}), 400
+        
+        email = data.get("email")
+        token = data.get("token")  # 6-digit code
+        type = data.get("type", "signup")  # signup, email_change, etc.
+        
+        if not email or not token:
+            return jsonify({"error": "Email and verification code are required"}), 400
+        
+        # Verify the email with Supabase
+        response = supabase.auth.verify_otp({
+            "email": email,
+            "token": token,
+            "type": type
+        })
+        
+        if response.user and response.session:
+            access_token = response.session.access_token
+            
+            if not IS_VERCEL:
+                logger.info(f"✅ Email verified successfully for {email}")
+            
+            flask_response = make_response(jsonify({
+                "message": "Email verified successfully",
+                "user": {
+                    "id": response.user.id,
+                    "email": response.user.email,
+                    "created_at": response.user.created_at,
+                    "last_sign_in_at": response.user.last_sign_in_at
+                }
+            }), 200)
+            
+            # Set cookie for session
+            flask_response.set_cookie(
+                "sb-access-token",
+                access_token,
+                httponly=True,
+                secure=is_production,
+                samesite="Lax",
+                max_age=3600
+            )
+            return flask_response
+        else:
+            return jsonify({"error": "Invalid verification code"}), 400
+            
+    except Exception as e:
+        logger.error(f"❌ Email verification error: {str(e)}")
+        return jsonify({"error": "Failed to verify email. Please try again."}), 500
+
+@app.route("/api/verify-callback", methods=["POST"])
+def verify_callback():
+    """Handle email verification callback from link"""
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({"error": "No data provided"}), 400
+        
+        access_token = data.get("access_token")
+        refresh_token = data.get("refresh_token")
+        
+        if not access_token or not refresh_token:
+            return jsonify({"error": "Access token and refresh token are required"}), 400
+        
+        # Set the session with the tokens from the verification link
+        response = supabase.auth.set_session(access_token, refresh_token)
+        
+        if response.user and response.session:
+            if not IS_VERCEL:
+                logger.info(f"✅ Email verification callback successful for {response.user.email}")
+            
+            flask_response = make_response(jsonify({
+                "message": "Email verification successful",
+                "user": {
+                    "id": response.user.id,
+                    "email": response.user.email,
+                    "created_at": response.user.created_at,
+                    "last_sign_in_at": response.user.last_sign_in_at
+                }
+            }), 200)
+            
+            # Set cookie for session
+            flask_response.set_cookie(
+                "sb-access-token",
+                response.session.access_token,
+                httponly=True,
+                secure=is_production,
+                samesite="Lax",
+                max_age=3600
+            )
+            return flask_response
+        else:
+            return jsonify({"error": "Invalid verification tokens"}), 400
+            
+    except Exception as e:
+        logger.error(f"❌ Email verification callback error: {str(e)}")
+        return jsonify({"error": "Failed to verify email. Please try again."}), 500
+
 @app.route("/api/update-password", methods=["POST"])
 def update_password():
     """Handle password update with reset token"""

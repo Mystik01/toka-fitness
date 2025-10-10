@@ -196,3 +196,60 @@ export async function resetPassword(accessToken: string, refreshToken: string, n
   }
   return res.json();
 }
+
+// Verify email with 6-digit code
+export async function verifyEmail(email: string, code: string) {
+  try {
+    const apiUrl = getApiUrl();
+    const res = await fetch(`${apiUrl}/api/verify-email`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({
+        email,
+        token: code,
+        type: "signup"
+      }),
+    });
+
+    if (!res.ok) {
+      const errorData = await res.json().catch(() => ({ error: "Failed to verify email" }));
+      const errorMessage = errorData.error || "Failed to verify email";
+      return { success: false, error: formatAuthError(errorMessage) };
+    }
+
+    const data = await res.json();
+    return { success: true, user: data.user };
+  } catch (error) {
+    console.error("Email verification error:", error);
+    return { success: false, error: "Failed to verify email. Please try again." };
+  }
+}
+
+// Handle email verification callback from link
+export async function verifyCallback(accessToken: string, refreshToken: string) {
+  try {
+    const apiUrl = getApiUrl();
+    const res = await fetch(`${apiUrl}/api/verify-callback`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({
+        access_token: accessToken,
+        refresh_token: refreshToken,
+      }),
+    });
+
+    if (!res.ok) {
+      const errorData = await res.json().catch(() => ({ error: "Failed to verify email" }));
+      const errorMessage = errorData.error || "Failed to verify email";
+      return { success: false, error: formatAuthError(errorMessage) };
+    }
+
+    const data = await res.json();
+    return { success: true, user: data.user };
+  } catch (error) {
+    console.error("Email verification callback error:", error);
+    return { success: false, error: "Failed to verify email. Please try again." };
+  }
+}

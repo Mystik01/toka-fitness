@@ -4,8 +4,8 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import PasswordStrength from "@/app/ui/auth/PasswordStrength";
 import { AnimatePresence, motion } from "framer-motion";
-import { Eye, EyeOff } from "lucide-react";
-import { register, validateSession } from "@/app/lib/auth";
+import { Eye, EyeOff, Mail, Smartphone, CheckCircle, ArrowRight } from "lucide-react";
+import { register, validateSession, verifyEmail } from "@/app/lib/auth";
 import AlreadyLoggedIn from "@/app/components/AlreadyLoggedIn";
 import { useRouter } from "next/navigation";
 
@@ -39,6 +39,14 @@ export default function Register() {
   const [redirecting, setRedirecting] = useState(false);
   const [countdown, setCountdown] = useState(5);
 
+  // Email verification states
+  const [showVerification, setShowVerification] = useState(false);
+  const [verificationMethod, setVerificationMethod] = useState<'email' | 'code' | null>(null);
+  const [verificationCode, setVerificationCode] = useState("");
+  const [verificationLoading, setVerificationLoading] = useState(false);
+  const [verificationError, setVerificationError] = useState("");
+  const [registeredEmail, setRegisteredEmail] = useState("");
+
   useEffect(() => {
     const checkAuthentication = async () => {
       try {
@@ -54,6 +62,19 @@ export default function Register() {
 
     checkAuthentication();
   }, []);
+
+  // Listen for email verification messages from callback page
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      if (event.data.type === 'EMAIL_VERIFIED' && event.data.success) {
+        // Email was verified in another tab, redirect to dashboard
+        router.push('/dashboard');
+      }
+    };
+
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, [router]);
 
   // Track form changes to enable/disable submit - optimize condition
   useEffect(() => {
@@ -125,10 +146,13 @@ export default function Register() {
     try {
       const data = await register(email, password);
 
+      // Show verification options instead of just success message
+      setRegisteredEmail(email);
+      setShowVerification(true);
       setSuccess(true);
       setMessage(
         data.message ||
-          "Registration successful! Please check your email to verify your account."
+          "Registration successful! Please verify your email to continue."
       );
       setEmail("");
       setPassword("");
@@ -156,6 +180,182 @@ export default function Register() {
       setLoading(false);
     }
   };
+
+  const handleCodeVerification = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!verificationCode || verificationCode.length !== 6) {
+      setVerificationError("Please enter a valid 6-digit code");
+      return;
+    }
+
+    setVerificationLoading(true);
+    setVerificationError("");
+
+    try {
+      const result = await verifyEmail(registeredEmail, verificationCode);
+      if (result.success) {
+        // Redirect to dashboard
+        router.push('/dashboard');
+      } else {
+        setVerificationError(result.error || "Invalid verification code");
+      }
+    } catch (error) {
+      setVerificationError("Failed to verify code. Please try again.");
+    } finally {
+      setVerificationLoading(false);
+    }
+  };
+
+  const openEmailVerification = () => {
+    const verificationUrl = `/auth/callback?verify=true&email=${encodeURIComponent(registeredEmail)}`;
+    window.open(verificationUrl, '_blank', 'width=500,height=600');
+  };
+
+  // Show verification options if registration was successful
+  if (showVerification) {
+    return (
+      <div className="space-y-6">
+        <div className="text-center">
+          <motion.div
+            initial={{ scale: 0 }}
+            animate={{ scale: 1 }}
+            transition={{ type: "spring", duration: 0.5 }}
+            className="mx-auto w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mb-4"
+          >
+            <CheckCircle className="w-8 h-8 text-green-600" />
+          </motion.div>
+          <h2 className="text-2xl font-bold text-gray-900">
+            Verify your email
+          </h2>
+          <p className="mt-3 text-sm text-gray-600">
+            We've sent a verification email to <strong>{registeredEmail}</strong>
+          </p>
+        </div>
+
+        <div className="space-y-4">
+          <p className="text-sm text-gray-600 text-center">
+            Choose how you'd like to verify your email:
+          </p>
+
+          {/* Email Link Option */}
+          <motion.div
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+            className="border border-gray-200 rounded-lg p-4 cursor-pointer hover:border-blue-300 hover:bg-blue-50 transition-all"
+            onClick={() => setVerificationMethod('email')}
+          >
+            <div className="flex items-center space-x-3">
+              <div className="flex-shrink-0">
+                <Mail className="w-6 h-6 text-blue-600" />
+              </div>
+              <div className="flex-1">
+                <h3 className="text-sm font-medium text-gray-900">
+                  Click the link in your email
+                </h3>
+                <p className="text-xs text-gray-500">
+                  Check your inbox and click the verification link
+                </p>
+              </div>
+              {verificationMethod === 'email' && (
+                <ArrowRight className="w-4 h-4 text-blue-600" />
+              )}
+            </div>
+            
+            {verificationMethod === 'email' && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                className="mt-4 pt-4 border-t border-gray-200"
+              >
+                <p className="text-xs text-gray-600 mb-3">
+                  Can't find the email? Check your spam folder or click below to open it in a new tab:
+                </p>
+                <button
+                  onClick={openEmailVerification}
+                  className="w-full bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
+                >
+                  Open Email Verification
+                </button>
+              </motion.div>
+            )}
+          </motion.div>
+
+          {/* Code Input Option */}
+          <motion.div
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+            className="border border-gray-200 rounded-lg p-4 cursor-pointer hover:border-blue-300 hover:bg-blue-50 transition-all"
+            onClick={() => setVerificationMethod('code')}
+          >
+            <div className="flex items-center space-x-3">
+              <div className="flex-shrink-0">
+                <Smartphone className="w-6 h-6 text-blue-600" />
+              </div>
+              <div className="flex-1">
+                <h3 className="text-sm font-medium text-gray-900">
+                  Enter verification code
+                </h3>
+                <p className="text-xs text-gray-500">
+                  Enter the 6-digit code from your email
+                </p>
+              </div>
+              {verificationMethod === 'code' && (
+                <ArrowRight className="w-4 h-4 text-blue-600" />
+              )}
+            </div>
+
+            {verificationMethod === 'code' && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                className="mt-4 pt-4 border-t border-gray-200"
+              >
+                <form onSubmit={handleCodeVerification} className="space-y-3">
+                  <input
+                    type="text"
+                    placeholder="Enter 6-digit code"
+                    value={verificationCode}
+                    onChange={(e) => {
+                      const value = e.target.value.replace(/\D/g, '').slice(0, 6);
+                      setVerificationCode(value);
+                      setVerificationError("");
+                    }}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-center text-lg font-mono tracking-widest focus:ring-blue-500 focus:border-blue-500"
+                    maxLength={6}
+                    autoComplete="one-time-code"
+                  />
+                  {verificationError && (
+                    <p className="text-sm text-red-600 text-center">{verificationError}</p>
+                  )}
+                  <button
+                    type="submit"
+                    disabled={verificationLoading || verificationCode.length !== 6}
+                    className="w-full bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm font-medium"
+                  >
+                    {verificationLoading ? "Verifying..." : "Verify Code"}
+                  </button>
+                </form>
+              </motion.div>
+            )}
+          </motion.div>
+        </div>
+
+        <div className="text-center pt-4">
+          <button
+            onClick={() => {
+              setShowVerification(false);
+              setVerificationMethod(null);
+              setVerificationCode("");
+              setVerificationError("");
+            }}
+            className="text-sm text-gray-600 hover:text-gray-800 underline"
+          >
+            ← Back to registration
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
