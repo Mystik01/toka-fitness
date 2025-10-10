@@ -165,6 +165,7 @@ def hello_world():
 
 @app.route("/api/login", methods=["POST"])
 def login():
+    email = None  # Initialize email variable for exception handling
     try:
         data = request.get_json()
         
@@ -213,16 +214,46 @@ def login():
             # ℹ️ Failed login is INFO, not an error - user just typed wrong password
             if not IS_VERCEL:
                 logger.info(f"ℹ️ Failed login attempt for {email}")
-            return jsonify({"error": "Authentication failed"}), 401
+            return jsonify({"error": "Invalid login credentials"}), 401
 
     except Exception as e:
-        # ❌ THIS is a real error (server/network issue, not user mistake)
-        logger.error(f"❌ Login error: {str(e)}")
-        return jsonify({"error": str(e)}), 500
+        error_message = str(e).lower()
+        
+        # Check if it's an authentication-related error (should be 401)
+        if any(term in error_message for term in [
+            'invalid_credentials', 
+            'invalid login credentials',
+            'email not confirmed', 
+            'email_not_confirmed',
+            'invalid_grant',
+            'user not found',
+            'invalid email or password',
+            'authentication failed',
+            'invalid_user_password'
+        ]):
+            # ℹ️ Authentication failure is normal user behavior, not a server error
+            if not IS_VERCEL:
+                logger.info(f"ℹ️ Authentication failed for {email or 'unknown'}: {error_message}")
+            return jsonify({"error": "Invalid login credentials"}), 401
+        
+        # Check for rate limiting (should be 429)
+        if any(term in error_message for term in [
+            'too many requests',
+            'rate limit',
+            'too_many_requests'
+        ]):
+            if not IS_VERCEL:
+                logger.info(f"ℹ️ Rate limit hit for {email or 'unknown'}")
+            return jsonify({"error": "Too many login attempts. Please try again later."}), 429
+        
+        # ❌ Real server errors (database connection, network issues, etc.)
+        logger.error(f"❌ Login server error: {str(e)}")
+        return jsonify({"error": "Internal server error. Please try again."}), 500
 
 @app.route("/api/register", methods=["POST"])
 def register():
     """Handle user registration with email and password"""
+    email = None  # Initialize email variable for exception handling
     try:
         data = request.get_json()
         
@@ -276,8 +307,46 @@ def register():
             return make_response(jsonify({"error": "Registration failed"}), 400)
             
     except Exception as e:
-        logger.error(f"❌ Registration error: {str(e)}")
-        return make_response(jsonify({"error": str(e)}), 500)
+        error_message = str(e).lower()
+        
+        # Check if it's a user-related error (should be 400 or 409)
+        if any(term in error_message for term in [
+            'user_already_exists',
+            'already registered', 
+            'already exists',
+            'email already registered',
+            'duplicate'
+        ]):
+            # ℹ️ User already exists is normal behavior, not a server error
+            if not IS_VERCEL:
+                logger.info(f"ℹ️ Registration attempt for existing user: {email or 'unknown'}")
+            return make_response(jsonify({"error": "An account with this email already exists"}), 409)
+        
+        # Check for invalid email/password format
+        if any(term in error_message for term in [
+            'invalid email',
+            'invalid_email',
+            'email format',
+            'weak password',
+            'password too weak'
+        ]):
+            if not IS_VERCEL:
+                logger.info(f"ℹ️ Registration validation error for {email or 'unknown'}: {error_message}")
+            return make_response(jsonify({"error": str(e)}), 400)
+        
+        # Check for rate limiting
+        if any(term in error_message for term in [
+            'too many requests',
+            'rate limit',
+            'too_many_requests'
+        ]):
+            if not IS_VERCEL:
+                logger.info(f"ℹ️ Registration rate limit hit for {email or 'unknown'}")
+            return make_response(jsonify({"error": "Too many registration attempts. Please try again later."}), 429)
+        
+        # ❌ Real server errors (database connection, network issues, etc.)
+        logger.error(f"❌ Registration server error: {str(e)}")
+        return make_response(jsonify({"error": "Internal server error. Please try again."}), 500)
 
 @app.route("/api/validate-session", methods=["GET"])
 def validate_session():
