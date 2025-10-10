@@ -5,6 +5,25 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { CheckCircle, XCircle, Loader2 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { verifyCallback } from '@/app/lib/auth';
+import dotenv from 'dotenv'
+dotenv.config()
+
+function useEmailForwardRedirect() {
+  const searchParams = useSearchParams();
+
+  useEffect(() => {
+    const tokenHash = searchParams.get('verifyEmailToken');
+    const type = searchParams.get('type');
+
+    if (tokenHash && type) {
+      // Build the Supabase verification URL manually
+      const supabaseUrl = `${process.env.SUPABASE_URL}auth/v1/verify?token_hash=${tokenHash}&type=${type}&redirect_to=https://yourdomain.com/callback`;
+
+      // Redirect user to Supabase for verification
+      window.location.href = supabaseUrl;
+    }
+  }, [searchParams]);
+}
 
 export default function CallbackPage() {
   const router = useRouter();
@@ -12,9 +31,21 @@ export default function CallbackPage() {
   const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
   const [message, setMessage] = useState('');
 
+  // Use the email forward redirect hook
+  useEmailForwardRedirect();
+
   useEffect(() => {
     const handleVerification = async () => {
       try {
+        // Check if this is an email forward redirect first
+        const tokenHash = searchParams.get('verifyEmailToken');
+        const type = searchParams.get('type');
+        
+        if (tokenHash && type) {
+          // This is a forward redirect case, don't process as callback
+          return;
+        }
+
         // Get the access token and refresh token from URL params
         const accessToken = searchParams.get('access_token');
         const refreshToken = searchParams.get('refresh_token');
