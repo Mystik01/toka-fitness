@@ -5,8 +5,6 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { CheckCircle, XCircle, Loader2 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { verifyCallback } from '@/app/lib/auth';
-import dotenv from 'dotenv'
-dotenv.config()
 
 function useEmailForwardRedirect() {
   const searchParams = useSearchParams();
@@ -16,11 +14,15 @@ function useEmailForwardRedirect() {
     const type = searchParams.get('type');
 
     if (tokenHash && type) {
-      // Build the Supabase verification URL manually
-      const supabaseUrl = `${process.env.SUPABASE_URL}auth/v1/verify?token_hash=${tokenHash}&type=${type}&redirect_to=https://yourdomain.com/callback`;
+      // Get environment variables for dynamic URL construction
+      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+      const currentDomain = typeof window !== 'undefined' ? window.location.origin : '';
+      
+      // Build the Supabase verification URL dynamically
+      const supabaseVerifyUrl = `${supabaseUrl}/auth/v1/verify?token_hash=${tokenHash}&type=${type}&redirect_to=${currentDomain}/auth/callback`;
 
       // Redirect user to Supabase for verification
-      window.location.href = supabaseUrl;
+      window.location.href = supabaseVerifyUrl;
     }
   }, [searchParams]);
 }

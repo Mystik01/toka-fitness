@@ -67,6 +67,21 @@ logger = logging.getLogger(__name__)
 # Check if we're in production
 is_production = os.environ.get('VERCEL_ENV') == 'production' or os.environ.get('NODE_ENV') == 'production'
 
+def get_frontend_url():
+    """Get the correct frontend URL based on environment"""
+    if IS_VERCEL:
+        # In production/Vercel, construct URL from environment variables
+        if os.environ.get('VERCEL_PROJECT_PRODUCTION_URL'):
+            return f"https://{os.environ.get('VERCEL_PROJECT_PRODUCTION_URL')}"
+        elif os.environ.get('VERCEL_URL'):
+            return f"https://{os.environ.get('VERCEL_URL')}"
+        else:
+            # Fallback to request host if available
+            return "https://your-domain.com"  # Replace with your actual domain
+    else:
+        # Development
+        return "http://localhost:3001"
+
 def check_supabase_connection():
     """Check if Supabase connection is working"""
     try:
@@ -272,7 +287,10 @@ def register():
         # Register user with Supabase
         response = supabase.auth.sign_up({
             "email": email,
-            "password": password
+            "password": password,
+            "options": {
+                "email_redirect_to": f"{get_frontend_url()}/auth/callback"
+            }
         })
         
         if response.user:
@@ -442,7 +460,7 @@ def reset_password():
         response = supabase.auth.reset_password_for_email(
             email,
             {
-                "redirect_to": "http://localhost:3001/auth/reset-password"
+                "redirect_to": f"{get_frontend_url()}/auth/reset-password"
             }
         )
         
