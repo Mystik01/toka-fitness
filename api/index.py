@@ -580,7 +580,7 @@ def verify_callback():
         logger.error(f"❌ Email verification callback error: {str(e)}")
         return jsonify({"error": "Failed to verify email. Please try again."}), 500
 
-@app.route("/api/update-password", methods=["POST"])
+@app.route("/api/auth/update-password", methods=["POST"])
 def update_password():
     """Handle password update with reset token"""
     try:
