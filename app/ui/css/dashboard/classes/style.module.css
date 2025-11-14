@@ -1,9 +1,5 @@
 /* Styles ported from Tailwind utilities used in app/dashboard/classes/page.tsx */
 
-:global(:root) {
-  --space-y-6: 1.5rem; /* 6 * 0.25rem */
-}
-
 /* root spacing between direct children */
 .root > * + * {
   margin-top: var(--space-y-6);
