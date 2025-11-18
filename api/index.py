@@ -647,6 +647,40 @@ def update_password():
         logger.error(f"❌ Update password error: {str(e)}")
         return jsonify({"error": "Failed to update password. Please try again."}), 500
 
+@app.route('/api/auth/delete-account', methods=['POST', 'DELETE'])
+def delete_account():
+    """Handle account deletion"""
+    try:
+        token = request.cookies.get("sb-access-token")
+        if not token:
+            return jsonify({"error": "Not logged in"}), 401
+
+        user = supabase.auth.get_user(token)
+
+        if user and user.user:
+            delete_response = supabase.auth.admin.delete_user(user.user.id)
+            if delete_response:
+                response = make_response(jsonify({"message": "Account deleted successfully"}), 200)
+                response.set_cookie(
+                    "sb-access-token", 
+                    "", 
+                    expires=0, 
+                    httponly=True, 
+                    samesite="Lax", 
+                    secure=is_production
+                )
+                if not IS_VERCEL:
+                    logger.info(f"✅ Account deleted for user: {user.user.email}")
+                return response
+            else:
+                return jsonify({"error": "Failed to delete account"}), 400
+        else:
+            return jsonify({"error": "Invalid session"}), 401
+            
+    except Exception as e:
+        logger.error(f"❌ Delete account error: {str(e)}")
+        return jsonify({"error": "Failed to delete account. Please try again."}), 500
+
 # For local development
 if __name__ == "__main__":
     app.run(debug=True, port=5328)

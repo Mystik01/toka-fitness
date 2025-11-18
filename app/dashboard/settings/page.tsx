@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { User, Bell, Shield, Palette, Globe, User as UserIcon, Mail, Calendar, Loader2, Edit3, Check, X } from 'lucide-react';
 import { getMe } from '@/app/lib/User';
-
+import DeleteAccountButton from '@/app/ui/auth/DeleteAccount';
 type Tab = 'general' | 'account';
 
 interface UserData {
@@ -416,17 +416,13 @@ export default function SettingsPage() {
                         <p className="text-sm text-gray-500">Update your password for security</p>
                       </button>
 
-                      <button
-                        onClick={() => {
-                          if (confirm('Are you sure you want to delete your account? This action cannot be undone.')) {
-                            alert('Delete account feature coming soon!');
-                          }
-                        }}
+                      <DeleteAccountButton
                         className="w-full text-left px-4 py-3 bg-red-50 hover:bg-red-100 rounded-lg transition-colors border border-red-200"
-                      >
-                        <p className="font-medium text-red-900">Delete Account</p>
-                        <p className="text-sm text-red-600">Permanently delete your account and all data</p>
-                      </button>
+                        onConfirm={() => {
+                          // TODO: replace with real API call
+                          alert('Delete account feature coming soon!');
+                        }}
+                      />
                     </div>
                   </div>
                 </>
