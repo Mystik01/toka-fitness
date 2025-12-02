@@ -1,11 +1,11 @@
-#Toka Fitness — Full-Stack Web Application
+# Toka Fitness — Full-Stack Web Application
 
 A full-stack fitness tracking and membership web application built using Next.js, Flask, and Supabase.
 This project was created to demonstrate modern web development practices, secure authentication, and API-driven architecture.
 
 ⸻
 
-##🚀 Tech Stack
+## 🚀 Tech Stack
 
 Frontend: Next.js, React, Tailwind
 Backend: Flask (Python), REST API
@@ -14,7 +14,7 @@ Deployment: Vercel (Next.js + Python Serverless Functions)
 
 ⸻
 
-##🌐 Live Demo
+## 🌐 Live Demo
 
 Production: https://ommix.xyz
 Dev Branch: https://dev.ommix.xyz
@@ -22,7 +22,7 @@ Dev Branch: https://dev.ommix.xyz
 My Supabase database pauses itself after a little while so you may get server error and unable to register or login if this has happend.
 ⸻
 
-##📌 Features
+## 📌 Features
 	•	🔐 User authentication with Supabase
 	•	📊 Fitness tracking (workouts, progress logging, etc.)
 	•	🧩 Full-stack architecture using Next.js frontend + Flask backend
@@ -32,7 +32,7 @@ My Supabase database pauses itself after a little while so you may get server er
 
 ⸻
 
-##🏗️ Architecture Overview
+## 🏗️ Architecture Overview
 
 This project uses a hybrid setup:
 	•	The Next.js frontend handles routing, UI, and interactions
@@ -44,7 +44,7 @@ This structure allows the UI to stay fast while the backend handles secure opera
 
 ⸻
 
-##🧪 Local Development
+## 🧪 Local Development
 
 Install dependencies
 `npm i`
