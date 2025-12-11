@@ -32,7 +32,6 @@
     "typescript": "5.0.4"
   },
   "devDependencies": {
-    "@types/canvas-confetti": "^1.6.4",
-    "supabase": "^2.65.5"
+    "@types/canvas-confetti": "^1.6.4"
   }
 }

@@ -63,17 +63,21 @@ export default function ClassesPage() {
   }, []);
 
   const enrolledClasses = getEnrolledClasses();
-  const allAvailableClasses = dbClasses.length > 0 ? dbClasses : getAvailableClasses();
+  
+  // Get available classes - normalize to a single array type
+  const allAvailableClasses: (DatabaseClass | FitnessClass)[] = dbClasses.length > 0 
+    ? dbClasses 
+    : getAvailableClasses();
 
   // Filter available classes
-  const availableClasses = allAvailableClasses.filter(fitnessClass => {
-    const matchesSearch = fitnessClass.class_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         fitnessClass.instructor?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         fitnessClass.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         fitnessClass.type?.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesType = selectedType === 'all' || 
-                       fitnessClass.class_type === selectedType || 
-                       fitnessClass.type === selectedType;
+  const availableClasses = allAvailableClasses.filter((fitnessClass) => {
+    const className = 'class_name' in fitnessClass ? fitnessClass.class_name : fitnessClass.name;
+    const classType = 'class_type' in fitnessClass ? fitnessClass.class_type : fitnessClass.type;
+    const instructor = 'instructor' in fitnessClass ? fitnessClass.instructor : '';
+    
+    const matchesSearch = className?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                         instructor?.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesType = selectedType === 'all' || classType === selectedType;
     return matchesSearch && matchesType;
   });
 

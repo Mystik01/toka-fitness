@@ -10,6 +10,13 @@ interface User {
   email: string;
   created_at: string;
   last_sign_in_at?: string;
+  displayName?: string;
+  user_metadata?: {
+    first_name?: string;
+    last_name?: string;
+    display_name?: string;
+    role?: string;
+  };
 }
 
 export default function DashboardLayout({
