@@ -100,9 +100,9 @@ check_supabase_connection()
 # Middleware to detect browser requests and redirect
 @app.before_request
 def redirect_browser_requests():
-    """Redirect browser requests to frontend, except for /api/python test endpoint"""
-    # Skip for /api/python test endpoint
-    if request.path == '/api/python':
+    """Redirect browser requests to frontend, except for /api/ endpoints"""
+    # Skip for any /api/ endpoints (these are API calls, not browser visits)
+    if request.path.startswith('/api/'):
         return None
     
     # Check if request is from a browser (has Accept header with text/html)
@@ -200,6 +200,7 @@ def login():
 
         if response.user and response.session:
             access_token = response.session.access_token
+            refresh_token = response.session.refresh_token
             
             # ℹ️ Only log in development
             if not IS_VERCEL:
@@ -215,7 +216,7 @@ def login():
                 }
             }), 200)
             
-            # ✅ Set cookie for session
+            # ✅ Set cookies for session
             flask_response.set_cookie(
                 "sb-access-token",
                 access_token,
@@ -223,6 +224,14 @@ def login():
                 secure=is_production,
                 samesite="Lax",
                 max_age=3600
+            )
+            flask_response.set_cookie(
+                "sb-refresh-token",
+                refresh_token,
+                httponly=True,
+                secure=is_production,
+                samesite="Lax",
+                max_age=604800  # 7 days
             )
             return flask_response
         else:
@@ -395,27 +404,134 @@ def validate_session():
         logger.error(f"❌ Session validation error: {str(e)}")
         return jsonify({"error": str(e)}), 500
     
-@app.route("/api/me", methods=["GET"])
+@app.route("/api/me", methods=["GET", "PATCH"])
 def get_me():
+    token = request.cookies.get("sb-access-token")
+    refresh_token = request.cookies.get("sb-refresh-token")
+    
+    if not token:
+        return jsonify({"error": "Not logged in"}), 401
+
     try:
-        token = request.cookies.get("sb-access-token")
-        if not token:
-            return jsonify({"error": "Not logged in"}), 401
-
         user = supabase.auth.get_user(token)
+        
+        if not user or not user.user:
+            return jsonify({"error": "Invalid session"}), 401
 
-        if user and user.user:
+        # GET - Return user data
+        if request.method == "GET":
+            metadata = user.user.user_metadata or {}
+            # Build display name from metadata
+            display_name = metadata.get("display_name")
+            if not display_name and metadata.get("first_name"):
+                display_name = f"{metadata.get('first_name', '')} {metadata.get('last_name', '')}".strip()
+            
             return jsonify({
                 "id": user.user.id,
                 "email": user.user.email,
                 "created_at": user.user.created_at,
-                "last_sign_in_at": user.user.last_sign_in_at
+                "last_sign_in_at": user.user.last_sign_in_at,
+                "displayName": display_name,
+                "user_metadata": metadata
             }), 200
-        else:
-            return jsonify({"error": "Invalid session"}), 401
+
+        # PATCH - Update user data
+        if request.method == "PATCH":
+            data = request.get_json()
+            if not data:
+                return jsonify({"error": "No data provided"}), 400
+
+            current_metadata = user.user.user_metadata or {}
+            updated_metadata = {**current_metadata}
+
+            # Handle display name update (can be first/last name or direct display_name)
+            if "first_name" in data or "last_name" in data:
+                first_name = data.get("first_name", current_metadata.get("first_name", "")).strip()
+                last_name = data.get("last_name", current_metadata.get("last_name", "")).strip()
+                updated_metadata["first_name"] = first_name
+                updated_metadata["last_name"] = last_name
+                updated_metadata["display_name"] = f"{first_name} {last_name}".strip()
+            elif "display_name" in data:
+                updated_metadata["display_name"] = data["display_name"].strip()
+
+            # Set session and update user
+            supabase.auth.set_session(token, refresh_token or "")
+            result = supabase.auth.update_user({"data": updated_metadata})
+
+            if not IS_VERCEL:
+                logger.info(f"✅ Updated user profile for {user.user.email}")
+
+            # Return updated user data
+            display_name = updated_metadata.get("display_name")
+            if not display_name and updated_metadata.get("first_name"):
+                display_name = f"{updated_metadata.get('first_name', '')} {updated_metadata.get('last_name', '')}".strip()
+
+            return jsonify({
+                "id": user.user.id,
+                "email": user.user.email,
+                "created_at": user.user.created_at,
+                "last_sign_in_at": user.user.last_sign_in_at,
+                "displayName": display_name,
+                "user_metadata": updated_metadata
+            }), 200
             
     except Exception as e:
-        logger.error(f"❌ Get user error: {str(e)}")
+        logger.error(f"❌ User API error: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/onboarding", methods=["POST"])
+def onboarding():
+    """Update user's display name during onboarding"""
+    try:
+        token = request.cookies.get("sb-access-token")
+        refresh_token = request.cookies.get("sb-refresh-token")
+        if not token:
+            return jsonify({"error": "Not logged in"}), 401
+
+        data = request.get_json()
+        first_name = data.get("first_name", "").strip()
+        last_name = data.get("last_name", "").strip()
+
+        if not first_name or not last_name:
+            return jsonify({"error": "First name and last name are required"}), 400
+
+        # Get current user to verify token is valid
+        user = supabase.auth.get_user(token)
+        if not user or not user.user:
+            return jsonify({"error": "Invalid session"}), 401
+
+        # Update user metadata with display name
+        display_name = f"{first_name} {last_name}"
+        current_metadata = user.user.user_metadata or {}
+        
+        # Preserve existing metadata (like role) and add name fields
+        updated_metadata = {
+            **current_metadata,
+            "first_name": first_name,
+            "last_name": last_name,
+            "display_name": display_name,
+        }
+
+        # Set the session first so update_user works
+        supabase.auth.set_session(token, refresh_token or "")
+        
+        # Now update the user metadata
+        result = supabase.auth.update_user({"data": updated_metadata})
+
+        if not IS_VERCEL:
+            logger.info(f"✅ Updated user profile: {display_name}")
+
+        return jsonify({
+            "message": "Profile updated successfully",
+            "user": {
+                "id": user.user.id,
+                "email": user.user.email,
+                "display_name": display_name,
+            }
+        }), 200
+
+    except Exception as e:
+        logger.error(f"❌ Onboarding error: {str(e)}")
         return jsonify({"error": str(e)}), 500
     
 @app.route("/api/logout", methods=["POST"])
@@ -563,7 +679,7 @@ def verify_callback():
                 }
             }), 200)
             
-            # Set cookie for session
+            # Set cookies for session
             flask_response.set_cookie(
                 "sb-access-token",
                 response.session.access_token,
@@ -571,6 +687,14 @@ def verify_callback():
                 secure=is_production,
                 samesite="Lax",
                 max_age=3600
+            )
+            flask_response.set_cookie(
+                "sb-refresh-token",
+                response.session.refresh_token,
+                httponly=True,
+                secure=is_production,
+                samesite="Lax",
+                max_age=604800  # 7 days
             )
             return flask_response
         else:
@@ -680,6 +804,201 @@ def delete_account():
     except Exception as e:
         logger.error(f"❌ Delete account error: {str(e)}")
         return jsonify({"error": "Failed to delete account. Please try again."}), 500
+
+@app.route("/api/staff-users", methods=["GET"])
+def get_staff_users():
+    """Fetch all users with staff or admin role"""
+    try:
+        # Query auth.users table directly using RPC or raw SQL
+        # Since we can't use admin API without service role key,
+        # we'll use a PostgreSQL function or direct query
+        
+        # Alternative: Query users via RPC function
+        # First, let's try using the admin list_users with proper error handling
+        try:
+            response = supabase.auth.admin.list_users()
+            
+            # Filter for staff and admin users
+            staff_users = []
+            for user in response:
+                # Handle both list and object responses
+                users_list = response if isinstance(response, list) else getattr(response, 'users', [])
+                for user in users_list:
+                    user_role = user.user_metadata.get("role", "user") if user.user_metadata else "user"
+                    if user_role in ["staff", "admin"]:
+                        display_name = user.user_metadata.get("display_name") if user.user_metadata else None
+                        first_name = user.user_metadata.get("first_name") if user.user_metadata else None
+                        last_name = user.user_metadata.get("last_name") if user.user_metadata else None
+                        
+                        # Build full name if available
+                        if display_name:
+                            name = display_name
+                        elif first_name and last_name:
+                            name = f"{first_name} {last_name}"
+                        elif first_name:
+                            name = first_name
+                        else:
+                            name = user.email.split('@')[0]  # Use email username as fallback
+                        
+                        staff_users.append({
+                            "id": user.id,
+                            "email": user.email,
+                            "name": name,
+                            "role": user_role,
+                        })
+                break
+            
+            if not IS_VERCEL:
+                logger.info(f"✅ Fetched {len(staff_users)} staff users")
+            
+            return jsonify({"staff_users": staff_users}), 200
+            
+        except Exception as admin_error:
+            # Admin API failed, try alternative method using PostgreSQL RPC
+            if not IS_VERCEL:
+                logger.warning(f"Admin API failed, using alternative method: {str(admin_error)}")
+            
+            # For now, return empty list with a note
+            # In production, you'd create a PostgreSQL function to query auth.users
+            return jsonify({
+                "staff_users": [],
+                "note": "Admin API requires service role key. Please add staff users manually or use service role key."
+            }), 200
+        
+    except Exception as e:
+        logger.error(f"❌ Error fetching staff users: {str(e)}")
+        return jsonify({"error": f"Failed to fetch staff users: {str(e)}"}), 500
+
+@app.route("/api/classes", methods=["GET"])
+def get_classes():
+    """Fetch all classes from Supabase"""
+    try:
+        data, count = supabase.table("classes").select("*").order("start", desc=False).execute()
+        
+        if not IS_VERCEL:
+            logger.info(f"✅ Fetched {len(data)} classes")
+        
+        return jsonify({"classes": data}), 200
+        
+    except Exception as e:
+        logger.error(f"❌ Error fetching classes: {str(e)}")
+        return jsonify({"error": "Failed to fetch classes"}), 500
+
+@app.route("/api/classes", methods=["POST"])
+def create_class():
+    """Create a new class (staff only)"""
+    try:
+        token = request.cookies.get("sb-access-token")
+        if not token:
+            return jsonify({"error": "Not authenticated"}), 401
+        
+        # Verify user and check role
+        user = supabase.auth.get_user(token)
+        if not user or not user.user:
+            return jsonify({"error": "Invalid token"}), 401
+        
+        user_role = user.user.user_metadata.get("role", "user") if user.user.user_metadata else "user"
+        if user_role not in ["staff", "admin"]:
+            return jsonify({"error": "Only staff can create classes"}), 403
+        
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "No data provided"}), 400
+        
+        required_fields = ["class_name", "class_type", "instructor", "start", "end", "location", "max_participants"]
+        if not all(field in data for field in required_fields):
+            return jsonify({"error": "Missing required fields"}), 400
+        
+        # Create class in Supabase
+        class_data = {
+            "class_name": data.get("class_name"),
+            "class_type": data.get("class_type"),
+            "instructor": data.get("instructor"),
+            "start": data.get("start"),
+            "end": data.get("end"),
+            "location": data.get("location"),
+            "max_participants": data.get("max_participants"),
+            "description": data.get("description", ""),
+            "participants": data.get("participants", [])
+        }
+        
+        response_data, count = supabase.table("classes").insert(class_data).execute()
+        
+        if not IS_VERCEL:
+            logger.info(f"✅ Class '{data.get('class_name')}' created successfully")
+        
+        return jsonify({"class": response_data[0] if response_data else class_data}), 201
+        
+    except Exception as e:
+        logger.error(f"❌ Error creating class: {str(e)}")
+        return jsonify({"error": "Failed to create class"}), 500
+
+@app.route("/api/classes/<class_id>", methods=["PUT"])
+def update_class(class_id):
+    """Update a class (staff only)"""
+    try:
+        token = request.cookies.get("sb-access-token")
+        if not token:
+            return jsonify({"error": "Not authenticated"}), 401
+        
+        # Verify user and check role
+        user = supabase.auth.get_user(token)
+        if not user or not user.user:
+            return jsonify({"error": "Invalid token"}), 401
+        
+        user_role = user.user.user_metadata.get("role", "user") if user.user.user_metadata else "user"
+        if user_role not in ["staff", "admin"]:
+            return jsonify({"error": "Only staff can edit classes"}), 403
+        
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "No data provided"}), 400
+        
+        # Update class in Supabase
+        update_data = {}
+        for field in ["class_name", "class_type", "instructor", "start", "end", "location", "max_participants", "description", "participants"]:
+            if field in data:
+                update_data[field] = data[field]
+        
+        response_data, count = supabase.table("classes").update(update_data).eq("id", class_id).execute()
+        
+        if not IS_VERCEL:
+            logger.info(f"✅ Class {class_id} updated successfully")
+        
+        return jsonify({"class": response_data[0] if response_data else update_data}), 200
+        
+    except Exception as e:
+        logger.error(f"❌ Error updating class: {str(e)}")
+        return jsonify({"error": "Failed to update class"}), 500
+
+@app.route("/api/classes/<class_id>", methods=["DELETE"])
+def delete_class(class_id):
+    """Delete a class (staff only)"""
+    try:
+        token = request.cookies.get("sb-access-token")
+        if not token:
+            return jsonify({"error": "Not authenticated"}), 401
+        
+        # Verify user and check role
+        user = supabase.auth.get_user(token)
+        if not user or not user.user:
+            return jsonify({"error": "Invalid token"}), 401
+        
+        user_role = user.user.user_metadata.get("role", "user") if user.user.user_metadata else "user"
+        if user_role not in ["staff", "admin"]:
+            return jsonify({"error": "Only staff can delete classes"}), 403
+        
+        # Delete class from Supabase
+        response_data, count = supabase.table("classes").delete().eq("id", class_id).execute()
+        
+        if not IS_VERCEL:
+            logger.info(f"✅ Class {class_id} deleted successfully")
+        
+        return jsonify({"message": "Class deleted successfully"}), 200
+        
+    except Exception as e:
+        logger.error(f"❌ Error deleting class: {str(e)}")
+        return jsonify({"error": "Failed to delete class"}), 500
 
 # For local development
 if __name__ == "__main__":

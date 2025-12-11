@@ -3,15 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-
     "flask-dev": "FLASK_DEBUG=1 pip3 install -r requirements.txt && python3 -m flask --app api/index run -p 5328",
     "next-dev": "next dev",
     "dev": "concurrently \"pnpm run next-dev\" \"pnpm run flask-dev\"",
-    
-
     "flask-dev:win": "set FLASK_DEBUG=1 && pip3 install -r requirements.txt && python -m flask --app api/index run -p 5328",
     "dev:win": "concurrently \"pnpm run next-dev\" \"pnpm run flask-dev:win\"",
-    
     "build": "next build",
     "start": "next start",
     "lint": "next lint"
@@ -36,6 +32,7 @@
     "typescript": "5.0.4"
   },
   "devDependencies": {
-    "@types/canvas-confetti": "^1.6.4"
+    "@types/canvas-confetti": "^1.6.4",
+    "supabase": "^2.65.5"
   }
 }

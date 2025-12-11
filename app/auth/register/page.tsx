@@ -358,17 +358,17 @@ export default function Register() {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="text-center">
-        <h2 className="text-2xl font-bold text-gray-900">
-          Create your account
+    <div className="space-y-4 sm:space-y-6">
+      <div className="space-y-2">
+        <h2 className="text-2xl sm:text-3xl font-bold text-gray-900">
+          Create account
         </h2>
-        <p className="mt-3 text-sm text-gray-600">
-          Join us today! Please fill in your details below.
+        <p className="text-sm sm:text-base text-gray-600">
+          Join us today! Fill in your details below.
         </p>
       </div>
 
-      <form className="space-y-5" onSubmit={handleSubmit}>
+      <form className="space-y-4 sm:space-y-5 pt-2" onSubmit={handleSubmit}>
         {/* Email */}
         <div>
           <label

@@ -1,26 +1,79 @@
 "use client";
 
 import styles from '@/app/ui/css/dashboard/classes/style.module.css';
-import { useState } from 'react';
-import { Search, Filter, Calendar, ChevronRight } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Search, Filter, Calendar, ChevronRight, Plus } from 'lucide-react';
+import Link from 'next/link';
 import EnrolledClassCard from '@/app/components/classes/EnrolledClassCard';
 import AvailableClassCard from '@/app/components/classes/AvailableClassCard';
 import { getEnrolledClasses, getAvailableClasses } from '@/app/lib/mockData/classes';
 import { FitnessClass, ClassType } from '@/app/lib/types/class';
+import { useUserRole } from '@/app/hooks/useUserRole';
+import { canUserPerformAction } from '@/app/lib/roles';
+
+interface DatabaseClass {
+  id: number;
+  class_name: string;
+  class_type: string;
+  instructor: string;
+  start: string;
+  end: string;
+  location: string;
+  max_participants: number;
+  participants: string[];
+  description?: string;
+  created_at: string;
+}
 
 export default function ClassesPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedType, setSelectedType] = useState<ClassType | 'all'>('all');
   const [showFilters, setShowFilters] = useState(false);
+  const [dbClasses, setDbClasses] = useState<DatabaseClass[]>([]);
+  const [loadingClasses, setLoadingClasses] = useState(true);
+  const [classesError, setClassesError] = useState<string | null>(null);
+
+  const { role, loading: roleLoading } = useUserRole();
+  const isStaff = role === 'staff' || role === 'admin';
+
+  // Fetch classes from database
+  useEffect(() => {
+    const fetchClasses = async () => {
+      try {
+        setLoadingClasses(true);
+        const response = await fetch('/api/classes');
+        const data = await response.json();
+        
+        if (response.ok) {
+          setDbClasses(data.classes || []);
+        } else {
+          setClassesError(data.error || 'Failed to load classes');
+          // Fall back to mock data if DB fetch fails
+          console.warn('Failed to fetch from DB, using mock data');
+        }
+      } catch (err) {
+        setClassesError('Network error loading classes');
+        console.error('Error fetching classes:', err);
+      } finally {
+        setLoadingClasses(false);
+      }
+    };
+
+    fetchClasses();
+  }, []);
 
   const enrolledClasses = getEnrolledClasses();
-  const allAvailableClasses = getAvailableClasses();
+  const allAvailableClasses = dbClasses.length > 0 ? dbClasses : getAvailableClasses();
 
   // Filter available classes
   const availableClasses = allAvailableClasses.filter(fitnessClass => {
-    const matchesSearch = fitnessClass.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         fitnessClass.instructor.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesType = selectedType === 'all' || fitnessClass.type === selectedType;
+    const matchesSearch = fitnessClass.class_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                         fitnessClass.instructor?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                         fitnessClass.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                         fitnessClass.type?.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesType = selectedType === 'all' || 
+                       fitnessClass.class_type === selectedType || 
+                       fitnessClass.type === selectedType;
     return matchesSearch && matchesType;
   });
 
@@ -64,12 +117,39 @@ export default function ClassesPage() {
 
   return (
     <div className={styles.root}>
-      {/* Header */}
-      <div>
-        <h1 className={styles.title}>Fitness Classes</h1>
-        <p className={styles.subtitle}>
-          Join classes, track your schedule, and reach your fitness goals
-        </p>
+      {/* Header with Staff Button */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+        <div>
+          <h1 className={styles.title}>Fitness Classes</h1>
+          <p className={styles.subtitle}>
+            Join classes, track your schedule, and reach your fitness goals
+          </p>
+        </div>
+        
+        {isStaff && !roleLoading && (
+          <Link href="/dashboard/classes/manage">
+            <button style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              padding: '0.75rem 1rem',
+              backgroundColor: '#4f46e5',
+              color: 'white',
+              borderRadius: '0.5rem',
+              fontSize: '0.875rem',
+              fontWeight: '600',
+              cursor: 'pointer',
+              border: 'none',
+              transition: 'background-color 0.3s',
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#4338ca')}
+            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = '#4f46e5')}
+            >
+              <Plus className="w-4 h-4" />
+              Add Class
+            </button>
+          </Link>
+        )}
       </div>
 
       {/* My Upcoming Classes Section */}

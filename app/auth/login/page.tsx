@@ -124,18 +124,18 @@ export default function Login() {
   };
 
   return (
-    <div className="space-y-6">
-      <div className="text-center">
-        <h2 className="text-2xl font-bold text-gray-900">
-          Sign in to your account
+    <div className="space-y-4 sm:space-y-6">
+      <div className="space-y-2">
+        <h2 className="text-2xl sm:text-3xl font-bold text-gray-900">
+          Sign in
         </h2>
-        <p className="mt-3 text-sm text-gray-600">
+        <p className="text-sm sm:text-base text-gray-600">
           Welcome back! Please enter your credentials.
         </p>
       </div>
 
-      <form className="space-y-5" onSubmit={handleSubmit}>
-        <div className="space-y-5">
+      <form className="space-y-4 sm:space-y-5 pt-2" onSubmit={handleSubmit}>
+        <div className="space-y-4 sm:space-y-5">
           <div>
             <label
               htmlFor="email-address"
@@ -201,18 +201,18 @@ export default function Login() {
           </div>
         )}
 
-        <div className="pt-4">
+        <div className="pt-2 sm:pt-4">
           <button
             type="submit"
             disabled={loading || (!!error && !hasFormChanged)}
-            className="w-full py-4 px-4 rounded-lg font-semibold text-white bg-indigo-600 hover:bg-indigo-700 focus:ring-4 focus:ring-indigo-200 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
+            className="w-full py-3 sm:py-4 px-4 rounded-lg font-semibold text-white bg-indigo-600 hover:bg-indigo-700 focus:ring-4 focus:ring-indigo-200 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
           >
             {loading ? "Signing in..." : error && !hasFormChanged ? "Please modify your input" : "Sign in"}
           </button>
         </div>
       </form>
 
-      <div className="text-center pt-4">
+      <div className="text-center pt-2 sm:pt-4">
         {failedAttempts >= 3 ? (
           <div className="relative">
             <div className="absolute inset-0 bg-yellow-100 rounded-lg animate-pulse"></div>
@@ -233,7 +233,7 @@ export default function Login() {
         )}
       </div>
 
-      <div className="text-center pt-6">
+      <div className="text-center pt-4 sm:pt-6">
         <p className="text-sm text-gray-600">
           Don&apos;t have an account?{" "}
           <Link

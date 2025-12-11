@@ -17,6 +17,9 @@ export async function middleware(request: NextRequest) {
                       pathname.startsWith('/auth/forgot') ||
                       pathname.startsWith('/auth/reset-password')
   
+  // Onboarding route
+  const isOnboardingRoute = pathname.startsWith('/auth/onboarding')
+  
   // If accessing a protected route without a token, redirect to login
   if (isProtectedRoute && !token) {
     const url = request.nextUrl.clone()
@@ -24,6 +27,33 @@ export async function middleware(request: NextRequest) {
     // Add redirect parameter so user can be sent back after login
     url.searchParams.set('redirect', pathname)
     return NextResponse.redirect(url)
+  }
+  
+  // Check if user needs onboarding (only for authenticated users accessing protected routes)
+  if (isProtectedRoute && token && !isOnboardingRoute) {
+    try {
+      // Fetch user data to check if they have completed onboarding
+      const apiUrl = process.env.API_URL || 'http://localhost:5328';
+      const response = await fetch(`${apiUrl}/api/me`, {
+        headers: {
+          'Cookie': `sb-access-token=${token}`,
+        },
+      });
+      
+      if (response.ok) {
+        const userData = await response.json();
+        const hasCompletedOnboarding = userData.user_metadata?.first_name || userData.user_metadata?.display_name;
+        
+        if (!hasCompletedOnboarding) {
+          const url = request.nextUrl.clone();
+          url.pathname = '/auth/onboarding';
+          return NextResponse.redirect(url);
+        }
+      }
+    } catch (error) {
+      console.error('Error checking onboarding status:', error);
+      // Continue anyway to avoid blocking user
+    }
   }
   
   // If accessing auth routes with a valid token, redirect to dashboard or original destination

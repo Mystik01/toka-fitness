@@ -1,6 +1,7 @@
 "use client";
 import React, { useState, useCallback } from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { Home, Dumbbell, Apple, Calendar, Settings, User } from "lucide-react";
 
 type SidebarProps = {
@@ -8,23 +9,32 @@ type SidebarProps = {
 };
 
 const navItems = [
-    { label: "Home", key: "dashboard", icon: Home },
+    { label: "Home", key: "dashboard", icon: Home, exact: true },
     { label: "Classes", key: "dashboard/classes", icon: Calendar },
     { label: "Workouts", key: "dashboard/workouts", icon: Dumbbell },
     { label: "Nutrition", key: "dashboard/nutrition", icon: Apple },
 ];
 
 const bottomItems = [
-    { label: "Settings", key: "dashboard/settings", icon: Settings },
-    { label: "Account", key: "dashboard/account", icon: User },
+    { label: "Settings", key: "dashboard/settings", icon: Settings, exact: true },
+    { label: "Account", key: "dashboard/account", icon: User, exact: true },
 ];
 
 const Sidebar: React.FC<SidebarProps> = React.memo(() => {
     const [expanded, setExpanded] = useState(false);
+    const pathname = usePathname();
 
     const toggleExpanded = useCallback(() => {
         setExpanded(prev => !prev);
     }, []);
+
+    const isActive = (key: string, exact?: boolean) => {
+        const path = `/${key}`;
+        if (exact) {
+            return pathname === path;
+        }
+        return pathname.startsWith(path);
+    };
 
     return (
         <aside
@@ -48,11 +58,16 @@ const Sidebar: React.FC<SidebarProps> = React.memo(() => {
                 <nav className="mt-4 flex flex-col gap-2">
                     {navItems.map((item) => {
                         const Icon = item.icon;
+                        const active = isActive(item.key, item.exact);
                         return (
                             <Link
                                 key={item.key}
                                 href={`/${item.key}`}
-                                className="flex items-center gap-3 px-4 py-2 hover:bg-gray-700 rounded transition-colors"
+                                className={`flex items-center gap-3 px-4 py-2 rounded transition-colors ${
+                                    active 
+                                        ? "bg-indigo-600 text-white" 
+                                        : "hover:bg-gray-700"
+                                }`}
                             >
                                 <Icon className="w-5 h-5" />
                                 {expanded && <span>{item.label}</span>}
@@ -64,11 +79,16 @@ const Sidebar: React.FC<SidebarProps> = React.memo(() => {
             <div className="flex flex-col gap-2 mb-4">
                 {bottomItems.map((item) => {
                     const Icon = item.icon;
+                    const active = isActive(item.key);
                     return (
                         <Link
                             key={item.key}
                             href={`/${item.key}`}
-                            className="flex items-center gap-3 px-4 py-2 hover:bg-gray-700 rounded transition-colors"
+                            className={`flex items-center gap-3 px-4 py-2 rounded transition-colors ${
+                                active 
+                                    ? "bg-indigo-600 text-white" 
+                                    : "hover:bg-gray-700"
+                            }`}
                         >
                             <Icon className="w-5 h-5" />
                             {expanded && <span>{item.label}</span>}
