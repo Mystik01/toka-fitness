@@ -3,6 +3,7 @@ import { useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import PasswordStrength from "@/app/ui/auth/PasswordStrength";
+import { getApiUrl } from "@/app/lib/apiClient";
 
 export default function ResetPassword() {
     const router = useRouter();
