@@ -1,6 +1,7 @@
 'use client';
 
 import React from "react";
+import { getApiUrl } from "@/app/lib/apiClient";
 
 export default function AuthLayout({
     children,
@@ -9,7 +10,7 @@ export default function AuthLayout({
 }) {
     const handleLogout = async () => {
         try {
-            await fetch('/api/logout', { method: 'POST', credentials: 'include' });
+            await fetch(`${getApiUrl()}/api/logout`, { method: 'POST', credentials: 'include' });
             window.location.href = '/auth/login';
         } catch (err) {
             console.error('Logout error:', err);

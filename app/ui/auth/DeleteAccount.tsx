@@ -1,6 +1,7 @@
 "use client";
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
+import { getApiUrl } from "@/app/lib/apiClient";
 
 type Props = {
     className?: string;
@@ -22,7 +23,7 @@ export default function DeleteAccount({ className, onConfirm }: Props) {
         setError(null);
 
         try {
-            const res = await fetch("/api/auth/delete-account", {
+            const res = await fetch(`${getApiUrl()}/api/auth/delete-account`, {
                 method: "DELETE",
                 headers: {
                     "Content-Type": "application/json",

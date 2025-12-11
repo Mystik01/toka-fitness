@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft, Plus, Trash2, Edit2, Loader2 } from 'lucide-react';
 import { useUserRole } from '@/app/hooks/useUserRole';
+import { getApiUrl } from '@/app/lib/apiClient';
 
 interface DatabaseClass {
   id?: number;
@@ -61,7 +62,7 @@ export default function ManageClassesPage() {
     const fetchStaffUsers = async () => {
       try {
         setStaffLoading(true);
-        const response = await fetch('/api/staff-users');
+        const response = await fetch(`${getApiUrl()}/api/staff-users`);
         const data = await response.json();
 
         if (response.ok) {
@@ -84,7 +85,7 @@ export default function ManageClassesPage() {
   useEffect(() => {
     const fetchCurrentUser = async () => {
       try {
-        const response = await fetch('/api/me');
+        const response = await fetch(`${getApiUrl()}/api/me`);
         const data = await response.json();
         if (response.ok) {
           const displayName = data.user_metadata?.display_name || 
@@ -110,7 +111,7 @@ export default function ManageClassesPage() {
     const fetchClasses = async () => {
       try {
         setLoading(true);
-        const response = await fetch('/api/classes');
+        const response = await fetch(`${getApiUrl()}/api/classes`);
         const data = await response.json();
 
         if (response.ok) {
@@ -148,7 +149,7 @@ export default function ManageClassesPage() {
     setError(null);
 
     try {
-      const url = editingId ? '/api/classes' : '/api/classes';
+      const url = `${getApiUrl()}/api/classes`;
       const method = editingId ? 'PUT' : 'POST';
 
       const response = await fetch(url, {
@@ -162,7 +163,7 @@ export default function ManageClassesPage() {
 
       if (response.ok) {
         // Refresh classes list
-        const refreshRes = await fetch('/api/classes');
+        const refreshRes = await fetch(`${getApiUrl()}/api/classes`);
         const refreshData = await refreshRes.json();
         if (refreshRes.ok) {
           setClasses(refreshData.classes || []);
@@ -204,7 +205,7 @@ export default function ManageClassesPage() {
 
     try {
       setSubmitting(true);
-      const response = await fetch('/api/classes', {
+      const response = await fetch(`${getApiUrl()}/api/classes`, {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',

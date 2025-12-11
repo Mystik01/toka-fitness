@@ -1,3 +1,5 @@
+import { getApiUrl } from '@/app/lib/apiClient';
+
 export interface User {
   id: string;
   email: string;
@@ -13,7 +15,7 @@ export interface User {
 }
 
 export async function getMe(): Promise<User> {
-  const res = await fetch("/api/me", {
+  const res = await fetch(`${getApiUrl()}/api/me`, {
     method: "GET",
     credentials: "include",
   });
@@ -29,7 +31,7 @@ export async function updateMe(data: {
   last_name?: string;
   display_name?: string;
 }): Promise<User> {
-  const res = await fetch("/api/me", {
+  const res = await fetch(`${getApiUrl()}/api/me`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     credentials: "include",

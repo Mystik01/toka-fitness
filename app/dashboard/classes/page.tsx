@@ -10,6 +10,7 @@ import { getEnrolledClasses, getAvailableClasses } from '@/app/lib/mockData/clas
 import { FitnessClass, ClassType } from '@/app/lib/types/class';
 import { useUserRole } from '@/app/hooks/useUserRole';
 import { canUserPerformAction } from '@/app/lib/roles';
+import { getApiUrl } from '@/app/lib/apiClient';
 
 interface DatabaseClass {
   id: number;
@@ -41,7 +42,7 @@ export default function ClassesPage() {
     const fetchClasses = async () => {
       try {
         setLoadingClasses(true);
-        const response = await fetch('/api/classes');
+        const response = await fetch(`${getApiUrl()}/api/classes`);
         const data = await response.json();
         
         if (response.ok) {
