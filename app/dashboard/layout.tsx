@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Sidebar from "@/app/ui/dashboard/NavBar";
 import { getUserData, signOut } from '@/app/lib/auth';
+import StaffBadge from '@/app/ui/dashboard/StaffBadge';
 
 interface User {
   id: string;
@@ -11,6 +12,7 @@ interface User {
   created_at: string;
   last_sign_in_at?: string;
   displayName?: string;
+    role?: 'user' | 'staff' | 'admin';
   user_metadata?: {
     first_name?: string;
     last_name?: string;
@@ -25,6 +27,7 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   const [user, setUser] = useState<User | null>(null);
+    const [userRole, setUserRole] = useState<'user' | 'staff' | 'admin'>('user');
   const [loading, setLoading] = useState(true);
   const router = useRouter();
 
@@ -34,6 +37,9 @@ export default function DashboardLayout({
       try {
         const userData = await getUserData();
         setUser(userData);
+          // Get role from API response
+          const role = (userData as any).role || userData.user_metadata?.role || 'user';
+          setUserRole(role);
         setLoading(false);
       } catch (err) {
         console.error('Failed to get user data:', err);
@@ -76,6 +82,7 @@ export default function DashboardLayout({
           <div className="flex justify-between items-center">
             <h1 className="text-2xl font-semibold text-gray-900">Dashboard</h1>
             <div className="flex items-center space-x-4">
+                            <StaffBadge role={userRole} size="sm" />
               <span className="text-sm text-gray-600">
                 Welcome, {user?.user_metadata?.first_name || user?.email || 'User'}
               </span>

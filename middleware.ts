@@ -25,7 +25,12 @@ export async function middleware(request: NextRequest) {
     const url = request.nextUrl.clone()
     url.pathname = '/auth/login'
     // Add redirect parameter so user can be sent back after login
-    url.searchParams.set('redirect', pathname)
+    const fullPath = `${pathname}${request.nextUrl.search || ''}`
+    url.searchParams.set('redirect', fullPath)
+    // If this was a class detail link, add a friendly notice
+    if (pathname.startsWith('/dashboard/classes')) {
+      url.searchParams.set('notice', 'signin_required_for_class')
+    }
     return NextResponse.redirect(url)
   }
   

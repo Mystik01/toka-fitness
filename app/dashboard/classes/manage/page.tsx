@@ -351,7 +351,7 @@ export default function ManageClassesPage() {
                     border: '1px solid #d1d5db',
                     borderRadius: '0.375rem',
                     fontSize: '1rem',
-                    color: '#1f2937',
+                    color: 'black',
                   }}
                 >
                   <option value="">Select type</option>
@@ -378,7 +378,7 @@ export default function ManageClassesPage() {
                     border: '1px solid #d1d5db',
                     borderRadius: '0.375rem',
                     fontSize: '1rem',
-                    color: '#1f2937',
+                    color: 'Black',
                   }}
                 >
                   <option value="">Select an instructor</option>
@@ -414,7 +414,7 @@ export default function ManageClassesPage() {
                     border: '1px solid #d1d5db',
                     borderRadius: '0.375rem',
                     fontSize: '1rem',
-                    color: '#1f2937',
+                    color: 'black',
                   }}
                   placeholder="e.g., Studio A"
                 />
@@ -436,7 +436,7 @@ export default function ManageClassesPage() {
                     border: '1px solid #d1d5db',
                     borderRadius: '0.375rem',
                     fontSize: '1rem',
-                    color: '#1f2937',
+                    color: 'black',
                   }}
                 />
               </div>
@@ -580,16 +580,17 @@ export default function ManageClassesPage() {
             backgroundColor: 'white',
             border: '1px solid #e5e7eb',
             borderRadius: '0.5rem',
+            color: '#111827', // force dark text so it stays visible on white background
           }}
         >
           <thead>
             <tr style={{ backgroundColor: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
-              <th style={{ padding: '1rem', textAlign: 'left', fontSize: '0.875rem', fontWeight: '600' }}>Name</th>
-              <th style={{ padding: '1rem', textAlign: 'left', fontSize: '0.875rem', fontWeight: '600' }}>Type</th>
-              <th style={{ padding: '1rem', textAlign: 'left', fontSize: '0.875rem', fontWeight: '600' }}>Start Time</th>
-              <th style={{ padding: '1rem', textAlign: 'left', fontSize: '0.875rem', fontWeight: '600' }}>Location</th>
-              <th style={{ padding: '1rem', textAlign: 'left', fontSize: '0.875rem', fontWeight: '600' }}>Capacity</th>
-              <th style={{ padding: '1rem', textAlign: 'center', fontSize: '0.875rem', fontWeight: '600' }}>Actions</th>
+              <th style={{ padding: '1rem', textAlign: 'left', fontSize: '0.875rem', fontWeight: '600', color: '#111827' }}>Name</th>
+              <th style={{ padding: '1rem', textAlign: 'left', fontSize: '0.875rem', fontWeight: '600', color: '#111827' }}>Type</th>
+              <th style={{ padding: '1rem', textAlign: 'left', fontSize: '0.875rem', fontWeight: '600', color: '#111827' }}>Start Time</th>
+              <th style={{ padding: '1rem', textAlign: 'left', fontSize: '0.875rem', fontWeight: '600', color: '#111827' }}>Location</th>
+              <th style={{ padding: '1rem', textAlign: 'left', fontSize: '0.875rem', fontWeight: '600', color: '#111827' }}>Capacity</th>
+              <th style={{ padding: '1rem', textAlign: 'center', fontSize: '0.875rem', fontWeight: '600', color: '#111827' }}>Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -600,7 +601,7 @@ export default function ManageClassesPage() {
                   style={{
                     padding: '2rem',
                     textAlign: 'center',
-                    color: '#6b7280',
+                    color: '#4b5563',
                     borderBottom: '1px solid #e5e7eb',
                   }}
                 >
@@ -610,8 +611,8 @@ export default function ManageClassesPage() {
             ) : (
               classes.map((fitnessClass) => (
                 <tr key={fitnessClass.id} style={{ borderBottom: '1px solid #e5e7eb' }}>
-                  <td style={{ padding: '1rem', fontSize: '0.875rem' }}>{fitnessClass.class_name}</td>
-                  <td style={{ padding: '1rem', fontSize: '0.875rem' }}>
+                  <td style={{ padding: '1rem', fontSize: '0.875rem', color: '#111827' }}>{fitnessClass.class_name}</td>
+                  <td style={{ padding: '1rem', fontSize: '0.875rem', color: '#111827' }}>
                     <span
                       style={{
                         display: 'inline-block',
@@ -626,11 +627,11 @@ export default function ManageClassesPage() {
                       {fitnessClass.class_type}
                     </span>
                   </td>
-                  <td style={{ padding: '1rem', fontSize: '0.875rem' }}>
+                  <td style={{ padding: '1rem', fontSize: '0.875rem', color: '#111827' }}>
                     {new Date(fitnessClass.start).toLocaleString()}
                   </td>
-                  <td style={{ padding: '1rem', fontSize: '0.875rem' }}>{fitnessClass.location}</td>
-                  <td style={{ padding: '1rem', fontSize: '0.875rem' }}>
+                  <td style={{ padding: '1rem', fontSize: '0.875rem', color: '#111827' }}>{fitnessClass.location}</td>
+                  <td style={{ padding: '1rem', fontSize: '0.875rem', color: '#111827' }}>
                     {fitnessClass.participants?.length || 0} / {fitnessClass.max_participants}
                   </td>
                   <td
@@ -648,7 +649,7 @@ export default function ManageClassesPage() {
                       style={{
                         padding: '0.5rem',
                         backgroundColor: '#dbeafe',
-                        color: '#1e40af',
+                        color: '#1e3a8a',
                         border: 'none',
                         borderRadius: '0.375rem',
                         cursor: 'pointer',

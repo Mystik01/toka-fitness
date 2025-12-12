@@ -1,7 +1,7 @@
 "use client";
 
 import { FitnessClass, Difficulty } from '@/app/lib/types/class';
-import { Calendar, Clock, MapPin, Users, Star, TrendingUp } from 'lucide-react';
+import { Calendar, Clock, MapPin, Users, Star, TrendingUp, Share } from 'lucide-react';
 
 // Database class type (from API)
 interface DatabaseClass {
@@ -23,13 +23,15 @@ interface AvailableClassCardProps {
   onJoin?: (classId: string) => void;
   onWaitlist?: (classId: string) => void;
   onViewDetails?: (classId: string) => void;
+  onShare?: (classId: string) => void;
 }
 
 export default function AvailableClassCard({ 
   fitnessClass, 
   onJoin, 
   onWaitlist,
-  onViewDetails 
+  onViewDetails,
+  onShare,
 }: AvailableClassCardProps) {
   // Normalize data from either type
   const isDbClass = 'class_name' in fitnessClass;
@@ -37,11 +39,14 @@ export default function AvailableClassCard({
   const id = String(fitnessClass.id);
   const name = isDbClass ? fitnessClass.class_name : fitnessClass.name;
   const type = isDbClass ? fitnessClass.class_type : fitnessClass.type;
-  const instructor = fitnessClass.instructor;
+  const instructor = isDbClass
+    ? (fitnessClass as any).instructor_name || fitnessClass.instructor
+    : fitnessClass.instructor;
   const location = fitnessClass.location;
   const startTime = isDbClass ? new Date(fitnessClass.start) : new Date(fitnessClass.startTime);
   const capacity = isDbClass ? fitnessClass.max_participants : fitnessClass.capacity;
-  const enrolled = isDbClass ? fitnessClass.participants.length : fitnessClass.enrolled;
+  // Supabase may return participants as null if column is missing or not set; default to 0
+  const enrolled = isDbClass ? (fitnessClass.participants ? fitnessClass.participants.length : 0) : fitnessClass.enrolled;
   const difficulty: Difficulty = isDbClass ? 'intermediate' : fitnessClass.difficulty;
   const rating = isDbClass ? undefined : fitnessClass.rating;
   const reviewCount = isDbClass ? undefined : fitnessClass.reviewCount;
@@ -185,6 +190,13 @@ export default function AvailableClassCard({
 
       {/* Actions */}
       <div className="flex gap-2">
+        <button
+          onClick={() => onShare?.(id)}
+          className="px-3 py-2 text-sm font-medium text-gray-600 bg-gray-100 rounded-md hover:bg-gray-200 transition-colors"
+          title="Copy share link"
+        >
+          <Share className="w-4 h-4" />
+        </button>
         {isFull ? (
           <>
             <button

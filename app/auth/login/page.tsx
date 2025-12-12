@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { login, validateSession } from "@/app/lib/auth"; // ✅ use wrapper
+import { getApiUrl } from "@/app/lib/apiClient";
 import { Eye, EyeOff } from "lucide-react";
 import AlreadyLoggedIn from "@/app/components/AlreadyLoggedIn";
 
@@ -33,6 +34,18 @@ export default function Login() {
   
   // Track failed login attempts
   const [failedAttempts, setFailedAttempts] = useState(0);
+  const notice = searchParams.get('notice');
+  const [classSummary, setClassSummary] = useState<{
+    name: string;
+    instructor: string;
+    start: string;
+    end?: string;
+    isPast: boolean;
+    type?: string;
+    emoji?: string;
+  } | null>(null);
+  const [classSummaryLoading, setClassSummaryLoading] = useState(false);
+  const [staffMap, setStaffMap] = useState<Record<string, string>>({});
 
   useEffect(() => {
     const checkAuthentication = async () => {
@@ -55,6 +68,105 @@ export default function Login() {
       setEmail(decodeURIComponent(emailParam));
     }
   }, []); // Remove searchParams from dependencies
+
+  // Fetch class details (lightweight) for shared class notice
+  useEffect(() => {
+    const redirectTo = searchParams.get('redirect');
+    const noticeParam = searchParams.get('notice');
+    if (noticeParam !== 'signin_required_for_class' || !redirectTo) return;
+
+    // Extract class id from redirect query (?class=ID)
+    let classId: string | null = null;
+    try {
+      const url = new URL(redirectTo, typeof window !== 'undefined' ? window.location.origin : 'http://localhost');
+      classId = url.searchParams.get('class');
+    } catch (e) {
+      // ignore
+    }
+    if (!classId) return;
+
+    const getClassEmoji = (classType?: string) => {
+      const type = (classType || '').toLowerCase();
+      switch (type) {
+        case 'yoga':
+          return '🧘';
+        case 'hiit':
+          return '💪';
+        case 'spin':
+          return '🚴';
+        case 'pilates':
+          return '🧘‍♀️';
+        case 'boxing':
+          return '🥊';
+        case 'strength':
+          return '🏋️';
+        case 'dance':
+          return '💃';
+        case 'swimming':
+          return '🏊';
+        default:
+          return '🎟️';
+      }
+    };
+
+    const loadClass = async () => {
+      try {
+        setClassSummaryLoading(true);
+        const fetchStaffUsers = async () => {
+          if (Object.keys(staffMap).length > 0) return staffMap;
+          try {
+            const staffRes = await fetch(`${getApiUrl()}/api/staff-users`);
+            const staffData = await staffRes.json();
+            if (staffRes.ok && Array.isArray(staffData.staff_users)) {
+              const map: Record<string, string> = {};
+              staffData.staff_users.forEach((u: any) => {
+                if (u?.id) {
+                  map[u.id] = u.name || u.email || u.id;
+                }
+              });
+              setStaffMap(map);
+              return map;
+            }
+          } catch (e) {
+            // ignore mapping errors
+          }
+          return staffMap;
+        };
+
+        const [classRes, staffMapResult] = await Promise.all([
+          fetch(`${getApiUrl()}/api/classes`),
+          fetchStaffUsers(),
+        ]);
+
+        const data = await classRes.json();
+        if (!classRes.ok || !Array.isArray(data.classes)) return;
+        const found = data.classes.find((c: any) => String(c.id) === String(classId));
+        if (!found) return;
+
+        const start = found.start;
+        const end = found.end;
+        const startDate = start ? new Date(start) : null;
+        const isPast = startDate ? startDate.getTime() < Date.now() : false;
+        const instructorId = found.instructor;
+        const instructorDisplay = staffMapResult?.[instructorId] || found.instructor_name || instructorId || 'Instructor';
+        setClassSummary({
+          name: found.class_name || 'Class',
+          instructor: instructorDisplay,
+          start,
+          end,
+          isPast,
+          type: found.class_type,
+          emoji: getClassEmoji(found.class_type),
+        });
+      } catch (e) {
+        // silent fail
+      } finally {
+        setClassSummaryLoading(false);
+      }
+    };
+
+    loadClass();
+  }, [searchParams]);
 
   // Separate useEffect for form change tracking to prevent conflicts
   useEffect(() => {
@@ -125,6 +237,39 @@ export default function Login() {
 
   return (
     <div className="space-y-4 sm:space-y-6">
+      {notice === 'signin_required_for_class' && (
+        <div className="p-4 rounded-xl border border-amber-100 bg-gradient-to-r from-amber-50 via-orange-50 to-white shadow-sm text-sm text-amber-900">
+          <div className="flex items-start gap-3">
+            <div className="mt-0.5 h-10 w-10 rounded-full bg-white text-2xl flex items-center justify-center shadow-inner">{classSummary?.emoji || '🎟️'}</div>
+            <div className="flex-1 space-y-2">
+              <p className="font-semibold text-amber-900">You've been invited to join a class!</p>
+              {classSummaryLoading && <p className="text-amber-800">Loading class details...</p>}
+              {!classSummaryLoading && classSummary && (
+                <div className="space-y-1.5">
+                  <div className="flex flex-wrap gap-2 items-center">
+                    <span className="px-2.5 py-1 rounded-full bg-white border border-amber-200 text-amber-900 text-xs font-semibold">{classSummary.name}</span>
+                    <span className="px-2.5 py-1 rounded-full bg-white border border-amber-100 text-amber-800 text-xs">Instructor: {classSummary.instructor}</span>
+                  </div>
+                  <p className="text-amber-900">
+                    <span className="font-semibold">Starts:</span> {classSummary.start ? new Date(classSummary.start).toLocaleString() : 'TBD'}
+                    {classSummary.end && (
+                      <>
+                        {' '}<span className="font-semibold">Ends:</span> {new Date(classSummary.end).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                      </>
+                    )}
+                  </p>
+                  {classSummary.isPast && (
+                    <p className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-100 text-amber-800 border border-amber-200 text-xs font-semibold">
+                      Already happened — you can still sign in to explore other classes.
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="space-y-2">
         <h2 className="text-2xl sm:text-3xl font-bold text-gray-900">
           Sign in

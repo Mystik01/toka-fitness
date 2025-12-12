@@ -946,8 +946,10 @@ def get_staff_users():
                             name = f"{first_name} {last_name}"
                         elif first_name:
                             name = first_name
-                        else:
+                        elif user.email:
                             name = user.email.split('@')[0]  # Use email username as fallback
+                        else:
+                            name = "User"  # Fallback if no email available
                         
                         staff_users.append({
                             "id": user.id,
@@ -1019,7 +1021,7 @@ def create_class():
         if not all(field in data for field in required_fields):
             return jsonify({"error": "Missing required fields"}), 400
         
-        # Create class in Supabase
+        # Create class in Supabase (only send columns that exist in the table)
         class_data = {
             "class_name": data.get("class_name"),
             "class_type": data.get("class_type"),
@@ -1028,8 +1030,6 @@ def create_class():
             "end": data.get("end"),
             "location": data.get("location"),
             "max_participants": data.get("max_participants"),
-            "description": data.get("description", ""),
-            "participants": data.get("participants", [])
         }
         
         response = supabase.table("classes").insert(class_data).execute()
@@ -1065,9 +1065,9 @@ def update_class(class_id):
         if not data:
             return jsonify({"error": "No data provided"}), 400
         
-        # Update class in Supabase
+        # Update class in Supabase (only send known columns)
         update_data = {}
-        for field in ["class_name", "class_type", "instructor", "start", "end", "location", "max_participants", "description", "participants"]:
+        for field in ["class_name", "class_type", "instructor", "start", "end", "location", "max_participants"]:
             if field in data:
                 update_data[field] = data[field]
         

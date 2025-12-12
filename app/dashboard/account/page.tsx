@@ -3,10 +3,11 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { User as UserIcon, Mail, Calendar, Loader2, Edit3, Shield, CheckCircle2 } from 'lucide-react';
+import { User as UserIcon, Mail, Calendar, Loader2, Edit3, Shield } from 'lucide-react';
 import { getMe, updateMe } from '@/app/lib/User';
 import { getApiUrl } from '@/app/lib/apiClient';
 import DeleteAccountButton from '@/app/ui/auth/DeleteAccount';
+import StaffBadge from '@/app/ui/dashboard/StaffBadge';
 
 interface UserData {
   id: string;
@@ -25,7 +26,7 @@ interface UserData {
 export default function AccountPage() {
   const pathname = usePathname();
   const [userData, setUserData] = useState<UserData | null>(null);
-  const [isStaff, setIsStaff] = useState(false);
+  const [userRole, setUserRole] = useState<'user' | 'staff' | 'admin'>('user');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -50,8 +51,8 @@ export default function AccountPage() {
         setFirstNameInput(data.user_metadata?.first_name || '');
         setLastNameInput(data.user_metadata?.last_name || '');
         // Role now comes from API (user_roles table); fallback to metadata if absent
-        const role = (data as any).role || data.user_metadata?.role;
-        setIsStaff(role === 'staff' || role === 'admin');
+        const role = (data as any).role || data.user_metadata?.role || 'user';
+        setUserRole(role);
       } catch (err: any) {
         setError(err.message || 'Failed to load user data');
       } finally {
@@ -219,12 +220,7 @@ export default function AccountPage() {
                     <UserIcon className="w-5 h-5 mr-2 text-indigo-600" />
                     Profile Information
                   </h3>
-                  {isStaff && (
-                    <span className="inline-flex items-center gap-1 px-2 py-1 text-xs font-semibold text-green-700 bg-green-100 rounded-full border border-green-200">
-                      <CheckCircle2 className="w-4 h-4" />
-                      Staff account
-                    </span>
-                  )}
+                  <StaffBadge role={userRole} />
                 </div>
                 <div className="space-y-4">
                   {/* Display Name */}
