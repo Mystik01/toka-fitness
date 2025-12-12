@@ -477,7 +477,14 @@ def get_me():
             elif "display_name" in data:
                 updated_metadata["display_name"] = data["display_name"].strip()
 
-            # Set session and update user
+                    role = get_user_role(user.user.id)
+                    # TEMP DEBUG: fetch raw role row
+                    debug_role_row = None
+                    try:
+                        debug_role_row = supabase.table('user_roles').select('*').eq('user_id', user.user.id).limit(1).execute()
+                    except Exception as e:
+                        if not IS_VERCEL:
+                            logger.error(f"Debug role row error: {e}")
             supabase.auth.set_session(token, refresh_token or "")
             result = supabase.auth.update_user({"data": updated_metadata})
 
@@ -538,6 +545,7 @@ def onboarding():
             "last_name": last_name,
             "display_name": display_name,
         }
+                logger.error(f"/api/me error: {e}")
 
         # Set the session first so update_user works
         supabase.auth.set_session(token, refresh_token or "")
