@@ -6,7 +6,6 @@ import { Search, Filter, Calendar, ChevronRight, Plus } from 'lucide-react';
 import Link from 'next/link';
 import EnrolledClassCard from '@/app/components/classes/EnrolledClassCard';
 import AvailableClassCard from '@/app/components/classes/AvailableClassCard';
-import { getEnrolledClasses } from '@/app/lib/mockData/classes';
 import { FitnessClass, ClassType } from '@/app/lib/types/class';
 import { useUserRole } from '@/app/hooks/useUserRole';
 import { canUserPerformAction } from '@/app/lib/roles';
@@ -66,7 +65,7 @@ export default function ClassesPage() {
     fetchClasses();
   }, []);
 
-  const enrolledClasses = getEnrolledClasses();
+  const enrolledClasses: FitnessClass[] = [];
   
   // Filter available classes (no mock fallback)
   const availableClasses = dbClasses

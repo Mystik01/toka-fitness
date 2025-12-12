@@ -450,6 +450,7 @@ def get_me():
                 "last_sign_in_at": user.user.last_sign_in_at,
                 "displayName": display_name,
                 "role": role,
+                "role_source": "user_roles_table",
                 "user_metadata": metadata
             }), 200
 
@@ -830,6 +831,89 @@ def delete_account():
     except Exception as e:
         logger.error(f"❌ Delete account error: {str(e)}")
         return jsonify({"error": "Failed to delete account. Please try again."}), 500
+
+@app.route("/api/change-password", methods=["POST"])
+def change_password_logged_in():
+    """Change password for a logged-in user using current session"""
+    try:
+        token = request.cookies.get("sb-access-token")
+        refresh_token = request.cookies.get("sb-refresh-token")
+        if not token:
+            return jsonify({"error": "Not authenticated"}), 401
+
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "No data provided"}), 400
+
+        new_password = data.get("new_password")
+        if not new_password or len(new_password) < 6:
+            return jsonify({"error": "Password must be at least 6 characters"}), 400
+
+        # Refresh the session to ensure validity
+        supabase.auth.set_session(token, refresh_token or "")
+
+        update_response = supabase.auth.update_user({
+            "password": new_password
+        })
+
+        if update_response.user:
+            if not IS_VERCEL:
+                logger.info(f"✅ Password updated for user {update_response.user.id}")
+            return jsonify({"message": "Password updated successfully"}), 200
+        else:
+            return jsonify({"error": "Failed to update password"}), 400
+
+    except Exception as e:
+        logger.error(f"❌ Change password error: {str(e)}")
+        return jsonify({"error": "Server error updating password"}), 500
+
+@app.route("/api/change-email", methods=["POST"])
+def change_email_logged_in():
+    """Initiate email change for a logged-in user (Supabase will send confirmation to new email)"""
+    try:
+        token = request.cookies.get("sb-access-token")
+        refresh_token = request.cookies.get("sb-refresh-token")
+        if not token:
+            return jsonify({"error": "Not authenticated"}), 401
+
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "No data provided"}), 400
+
+        new_email = data.get("new_email")
+        if not new_email:
+            return jsonify({"error": "New email is required"}), 400
+
+        # Basic email format check (same as reset)
+        import re
+        email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+        if not re.match(email_pattern, new_email):
+            return jsonify({"error": "Invalid email format"}), 400
+
+        # Ensure session is valid
+        supabase.auth.set_session(token, refresh_token or "")
+
+        update_response = supabase.auth.update_user({
+            "email": new_email,
+            "options": {"email_redirect_to": f"{get_frontend_url()}"}
+        })
+
+        if update_response.user:
+            if not IS_VERCEL:
+                logger.info(f"✅ Email change initiated for user {update_response.user.id} -> {new_email}")
+            return jsonify({
+                "message": "Email change initiated. Please verify the new email.",
+                "pending_email": new_email
+            }), 200
+        else:
+            return jsonify({"error": "Failed to initiate email change"}), 400
+
+    except Exception as e:
+        error_message = str(e).lower()
+        if 'already exists' in error_message or 'duplicate' in error_message:
+            return jsonify({"error": "Email already in use"}), 409
+        logger.error(f"❌ Change email error: {str(e)}")
+        return jsonify({"error": "Server error updating email"}), 500
 
 @app.route("/api/staff-users", methods=["GET"])
 def get_staff_users():
