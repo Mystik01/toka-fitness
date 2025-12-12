@@ -6,7 +6,7 @@ import { Search, Filter, Calendar, ChevronRight, Plus } from 'lucide-react';
 import Link from 'next/link';
 import EnrolledClassCard from '@/app/components/classes/EnrolledClassCard';
 import AvailableClassCard from '@/app/components/classes/AvailableClassCard';
-import { getEnrolledClasses, getAvailableClasses } from '@/app/lib/mockData/classes';
+import { getEnrolledClasses } from '@/app/lib/mockData/classes';
 import { FitnessClass, ClassType } from '@/app/lib/types/class';
 import { useUserRole } from '@/app/hooks/useUserRole';
 import { canUserPerformAction } from '@/app/lib/roles';
@@ -68,13 +68,8 @@ export default function ClassesPage() {
 
   const enrolledClasses = getEnrolledClasses();
   
-  // Get available classes - normalize to a single array type
-  const allAvailableClasses: (DatabaseClass | FitnessClass)[] = dbClasses.length > 0 
-    ? dbClasses 
-    : getAvailableClasses();
-
-  // Filter available classes
-  const availableClasses = allAvailableClasses
+  // Filter available classes (no mock fallback)
+  const availableClasses = dbClasses
     .filter((fitnessClass) => fitnessClass && typeof fitnessClass === 'object')
     .filter((fitnessClass) => {
     const className = 'class_name' in fitnessClass ? (fitnessClass as DatabaseClass).class_name : (fitnessClass as FitnessClass).name;
@@ -255,8 +250,8 @@ export default function ClassesPage() {
         {/* Available Classes Grid */}
         {availableClasses.length === 0 ? (
           <div className={styles.emptyResults}>
-            <p className={styles.textGray500}>No classes found matching your filters.</p>
-            <p className={styles.smallMutedAlt}>Try adjusting your search or filters.</p>
+            <p className={styles.textGray500}>There are no classes right now. Check back later.</p>
+            <p className={styles.smallMutedAlt}>We add new classes regularly.</p>
           </div>
         ) : (
           <div className={styles.cardGrid}>
