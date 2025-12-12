@@ -33,7 +33,8 @@ export async function middleware(request: NextRequest) {
   if (isProtectedRoute && token && !isOnboardingRoute) {
     try {
       // Fetch user data to check if they have completed onboarding
-      const apiUrl = process.env.API_URL || 'http://localhost:5328';
+      // In production (Vercel), use the current request's origin; in dev, use localhost:5328
+      const apiUrl = process.env.VERCEL ? request.nextUrl.origin : (process.env.API_URL || 'http://localhost:5328');
       const response = await fetch(`${apiUrl}/api/me`, {
         headers: {
           'Cookie': `sb-access-token=${token}`,
