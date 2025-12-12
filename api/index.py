@@ -97,6 +97,18 @@ def check_supabase_connection():
 # Check connection on startup
 check_supabase_connection()
 
+def get_user_role(user_id: str) -> str:
+    """Get user role from the secure user_roles table"""
+    try:
+        response = supabase.table("user_roles").select("role").eq("user_id", user_id).single().execute()
+        if hasattr(response, 'data') and response.data:
+            return response.data.get("role", "user")
+        return "user"
+    except Exception as e:
+        if not IS_VERCEL:
+            logger.warning(f"Could not fetch role for user {user_id}: {str(e)}")
+        return "user"
+
 # Middleware to detect browser requests and redirect
 @app.before_request
 def redirect_browser_requests():
@@ -426,12 +438,16 @@ def get_me():
             if not display_name and metadata.get("first_name"):
                 display_name = f"{metadata.get('first_name', '')} {metadata.get('last_name', '')}".strip()
             
+            # Get role from secure database table instead of user_metadata
+            role = get_user_role(user.user.id)
+            
             return jsonify({
                 "id": user.user.id,
                 "email": user.user.email,
                 "created_at": user.user.created_at,
                 "last_sign_in_at": user.user.last_sign_in_at,
                 "displayName": display_name,
+                "role": role,
                 "user_metadata": metadata
             }), 200
 
@@ -440,6 +456,10 @@ def get_me():
             data = request.get_json()
             if not data:
                 return jsonify({"error": "No data provided"}), 400
+
+            # Prevent users from updating their own role via this endpoint
+            if "role" in data:
+                return jsonify({"error": "Cannot update role via this endpoint"}), 403
 
             current_metadata = user.user.user_metadata or {}
             updated_metadata = {**current_metadata}
@@ -466,12 +486,16 @@ def get_me():
             if not display_name and updated_metadata.get("first_name"):
                 display_name = f"{updated_metadata.get('first_name', '')} {updated_metadata.get('last_name', '')}".strip()
 
+            # Get role from secure database table
+            role = get_user_role(user.user.id)
+
             return jsonify({
                 "id": user.user.id,
                 "email": user.user.email,
                 "created_at": user.user.created_at,
                 "last_sign_in_at": user.user.last_sign_in_at,
                 "displayName": display_name,
+                "role": role,
                 "user_metadata": updated_metadata
             }), 200
             
@@ -873,12 +897,13 @@ def get_staff_users():
 def get_classes():
     """Fetch all classes from Supabase"""
     try:
-        data, count = supabase.table("classes").select("*").order("start", desc=False).execute()
+        response = supabase.table("classes").select("*").order("start", desc=False).execute()
+        classes = response.data if hasattr(response, 'data') else []
         
         if not IS_VERCEL:
-            logger.info(f"✅ Fetched {len(data)} classes")
+            logger.info(f"✅ Fetched {len(classes)} classes")
         
-        return jsonify({"classes": data}), 200
+        return jsonify({"classes": classes}), 200
         
     except Exception as e:
         logger.error(f"❌ Error fetching classes: {str(e)}")
@@ -892,12 +917,12 @@ def create_class():
         if not token:
             return jsonify({"error": "Not authenticated"}), 401
         
-        # Verify user and check role
+        # Verify user and check role from secure database table
         user = supabase.auth.get_user(token)
         if not user or not user.user:
             return jsonify({"error": "Invalid token"}), 401
         
-        user_role = user.user.user_metadata.get("role", "user") if user.user.user_metadata else "user"
+        user_role = get_user_role(user.user.id)
         if user_role not in ["staff", "admin"]:
             return jsonify({"error": "Only staff can create classes"}), 403
         
@@ -922,12 +947,13 @@ def create_class():
             "participants": data.get("participants", [])
         }
         
-        response_data, count = supabase.table("classes").insert(class_data).execute()
+        response = supabase.table("classes").insert(class_data).execute()
+        created_class = response.data[0] if hasattr(response, 'data') and response.data else class_data
         
         if not IS_VERCEL:
             logger.info(f"✅ Class '{data.get('class_name')}' created successfully")
         
-        return jsonify({"class": response_data[0] if response_data else class_data}), 201
+        return jsonify({"class": created_class}), 201
         
     except Exception as e:
         logger.error(f"❌ Error creating class: {str(e)}")
@@ -941,12 +967,12 @@ def update_class(class_id):
         if not token:
             return jsonify({"error": "Not authenticated"}), 401
         
-        # Verify user and check role
+        # Verify user and check role from secure database table
         user = supabase.auth.get_user(token)
         if not user or not user.user:
             return jsonify({"error": "Invalid token"}), 401
         
-        user_role = user.user.user_metadata.get("role", "user") if user.user.user_metadata else "user"
+        user_role = get_user_role(user.user.id)
         if user_role not in ["staff", "admin"]:
             return jsonify({"error": "Only staff can edit classes"}), 403
         
@@ -960,12 +986,13 @@ def update_class(class_id):
             if field in data:
                 update_data[field] = data[field]
         
-        response_data, count = supabase.table("classes").update(update_data).eq("id", class_id).execute()
+        response = supabase.table("classes").update(update_data).eq("id", class_id).execute()
+        updated_class = response.data[0] if hasattr(response, 'data') and response.data else update_data
         
         if not IS_VERCEL:
             logger.info(f"✅ Class {class_id} updated successfully")
         
-        return jsonify({"class": response_data[0] if response_data else update_data}), 200
+        return jsonify({"class": updated_class}), 200
         
     except Exception as e:
         logger.error(f"❌ Error updating class: {str(e)}")
@@ -979,17 +1006,17 @@ def delete_class(class_id):
         if not token:
             return jsonify({"error": "Not authenticated"}), 401
         
-        # Verify user and check role
+        # Verify user and check role from secure database table
         user = supabase.auth.get_user(token)
         if not user or not user.user:
             return jsonify({"error": "Invalid token"}), 401
         
-        user_role = user.user.user_metadata.get("role", "user") if user.user.user_metadata else "user"
+        user_role = get_user_role(user.user.id)
         if user_role not in ["staff", "admin"]:
             return jsonify({"error": "Only staff can delete classes"}), 403
         
         # Delete class from Supabase
-        response_data, count = supabase.table("classes").delete().eq("id", class_id).execute()
+        response = supabase.table("classes").delete().eq("id", class_id).execute()
         
         if not IS_VERCEL:
             logger.info(f"✅ Class {class_id} deleted successfully")

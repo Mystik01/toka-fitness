@@ -46,7 +46,10 @@ export default function ClassesPage() {
         const data = await response.json();
         
         if (response.ok) {
-          setDbClasses(data.classes || []);
+          // Ensure we only store valid class objects
+          const classes = Array.isArray(data.classes) ? data.classes : [];
+          const sanitized = classes.filter((item: any) => item && typeof item === 'object');
+          setDbClasses(sanitized as DatabaseClass[]);
         } else {
           setClassesError(data.error || 'Failed to load classes');
           // Fall back to mock data if DB fetch fails
@@ -71,10 +74,12 @@ export default function ClassesPage() {
     : getAvailableClasses();
 
   // Filter available classes
-  const availableClasses = allAvailableClasses.filter((fitnessClass) => {
-    const className = 'class_name' in fitnessClass ? fitnessClass.class_name : fitnessClass.name;
-    const classType = 'class_type' in fitnessClass ? fitnessClass.class_type : fitnessClass.type;
-    const instructor = 'instructor' in fitnessClass ? fitnessClass.instructor : '';
+  const availableClasses = allAvailableClasses
+    .filter((fitnessClass) => fitnessClass && typeof fitnessClass === 'object')
+    .filter((fitnessClass) => {
+    const className = 'class_name' in fitnessClass ? (fitnessClass as DatabaseClass).class_name : (fitnessClass as FitnessClass).name;
+    const classType = 'class_type' in fitnessClass ? (fitnessClass as DatabaseClass).class_type : (fitnessClass as FitnessClass).type;
+    const instructor = 'instructor' in fitnessClass ? (fitnessClass as DatabaseClass).instructor : '';
     
     const matchesSearch = className?.toLowerCase().includes(searchQuery.toLowerCase()) ||
                          instructor?.toLowerCase().includes(searchQuery.toLowerCase());

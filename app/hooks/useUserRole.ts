@@ -2,10 +2,11 @@
 
 import { useEffect, useState } from 'react';
 import { getMe } from '@/app/lib/User';
-import { UserRole, extractRoleFromMetadata } from '@/app/lib/roles';
+import { UserRole } from '@/app/lib/roles';
 
 /**
  * Hook to get the current user's role
+ * Role is now fetched from secure user_roles DB table via API
  */
 export function useUserRole() {
   const [role, setRole] = useState<UserRole | null>(null);
@@ -17,7 +18,8 @@ export function useUserRole() {
       try {
         setLoading(true);
         const user = await getMe();
-        const userRole = extractRoleFromMetadata(user.user_metadata);
+        // Role now comes directly from API (fetched from secure DB table)
+        const userRole = user.role || 'user';
         setRole(userRole);
       } catch (err: any) {
         setError(err.message || 'Failed to fetch user role');

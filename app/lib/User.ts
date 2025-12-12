@@ -5,11 +5,11 @@ export interface User {
   email: string;
   phone?: string;
   displayName?: string;
+  role?: 'user' | 'staff' | 'admin';  // Role from secure DB table
   user_metadata?: {
     first_name?: string;
     last_name?: string;
     display_name?: string;
-    role?: string;
     [key: string]: any;
   };
 }
