@@ -13,7 +13,9 @@ app = Flask(__name__)
 
 # Get environment variables with validation
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
-SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
+# Prefer service role key (bypasses RLS when needed); fall back to SUPABASE_KEY if not provided
+SUPABASE_SERVICE_ROLE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+SUPABASE_KEY = SUPABASE_SERVICE_ROLE_KEY or os.environ.get("SUPABASE_KEY")
 
 # Validate required environment variables
 if not SUPABASE_URL or not SUPABASE_KEY:
