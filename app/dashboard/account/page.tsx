@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { User as UserIcon, Mail, Calendar, Loader2, Edit3, Shield, CheckCircle2 } from 'lucide-react';
 import { getMe, updateMe } from '@/app/lib/User';
+import { getApiUrl } from '@/app/lib/apiClient';
 import DeleteAccountButton from '@/app/ui/auth/DeleteAccount';
 
 interface UserData {
@@ -33,6 +34,9 @@ export default function AccountPage() {
   const [firstNameInput, setFirstNameInput] = useState('');
   const [lastNameInput, setLastNameInput] = useState('');
   const [isSavingDisplayName, setIsSavingDisplayName] = useState(false);
+  const [newEmail, setNewEmail] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [actionMessage, setActionMessage] = useState('');
 
   const isSettingsActive = pathname === '/dashboard/settings';
   const isAccountActive = pathname === '/dashboard/account';
@@ -89,6 +93,56 @@ export default function AccountPage() {
       alert(err.message || 'Failed to update display name');
     } finally {
       setIsSavingDisplayName(false);
+    }
+  };
+
+  const handleChangeEmail = async () => {
+    setActionMessage('');
+    if (!newEmail) {
+      setActionMessage('Please enter a new email.');
+      return;
+    }
+    try {
+      const res = await fetch(`${getApiUrl()}/api/change-email`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ new_email: newEmail }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setActionMessage(data.error || 'Failed to change email');
+        return;
+      }
+      setActionMessage('Email change sent. Verify the new email.');
+      setNewEmail('');
+    } catch (e) {
+      setActionMessage('Network error changing email');
+    }
+  };
+
+  const handleChangePassword = async () => {
+    setActionMessage('');
+    if (!newPassword || newPassword.length < 6) {
+      setActionMessage('Password must be at least 6 characters.');
+      return;
+    }
+    try {
+      const res = await fetch(`${getApiUrl()}/api/change-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ new_password: newPassword }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setActionMessage(data.error || 'Failed to change password');
+        return;
+      }
+      setActionMessage('Password updated successfully.');
+      setNewPassword('');
+    } catch (e) {
+      setActionMessage('Network error changing password');
     }
   };
 
@@ -290,26 +344,43 @@ export default function AccountPage() {
 
               {/* Account Actions */}
               <div>
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">
-                  Account Actions
-                </h3>
-                <div className="space-y-3">
-                  <button
-                    onClick={() => alert('Change email feature coming soon!')}
-                    className="w-full text-left px-4 py-3 bg-gray-50 hover:bg-gray-100 rounded-lg transition-colors"
-                  >
-                    <p className="font-medium text-gray-900">Change Email</p>
-                    <p className="text-sm text-gray-500">Update your email address</p>
-                  </button>
-
-                  <button
-                    onClick={() => alert('Change password feature coming soon!')}
-                    className="w-full text-left px-4 py-3 bg-gray-50 hover:bg-gray-100 rounded-lg transition-colors"
-                  >
-                    <p className="font-medium text-gray-900">Change Password</p>
-                    <p className="text-sm text-gray-500">Update your password for security</p>
-                  </button>
-
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">Account Actions</h3>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium">New Email</label>
+                    <input
+                      type="email"
+                      className="mt-1 w-full rounded border px-3 py-2"
+                      value={newEmail}
+                      onChange={(e) => setNewEmail(e.target.value)}
+                      placeholder="you@example.com"
+                    />
+                    <button
+                      className="mt-2 inline-flex items-center rounded bg-blue-600 px-3 py-2 text-white hover:bg-blue-700"
+                      onClick={handleChangeEmail}
+                    >
+                      Change Email
+                    </button>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium">New Password</label>
+                    <input
+                      type="password"
+                      className="mt-1 w-full rounded border px-3 py-2"
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      placeholder="At least 6 characters"
+                    />
+                    <button
+                      className="mt-2 inline-flex items-center rounded bg-blue-600 px-3 py-2 text-white hover:bg-blue-700"
+                      onClick={handleChangePassword}
+                    >
+                      Change Password
+                    </button>
+                  </div>
+                  {actionMessage && (
+                    <p className="text-sm text-gray-700">{actionMessage}</p>
+                  )}
                   <DeleteAccountButton
                     className="w-full text-left px-4 py-3 bg-red-50 hover:bg-red-100 rounded-lg transition-colors border border-red-200"
                     onConfirm={() => {
