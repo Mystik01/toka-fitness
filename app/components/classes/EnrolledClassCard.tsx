@@ -5,7 +5,7 @@ import { Calendar, Clock, MapPin, Users, X } from 'lucide-react';
 
 // Database class type (from API)
 interface DatabaseClass {
-  id: number;
+  id: string;
   class_name: string;
   class_type: string;
   instructor: string;

@@ -5,7 +5,7 @@ import { Calendar, Clock, MapPin, Users, Star, TrendingUp, Share } from 'lucide-
 
 // Database class type (from API)
 interface DatabaseClass {
-  id: number;
+  id: string;
   class_name: string;
   class_type: string;
   instructor: string;
@@ -13,7 +13,7 @@ interface DatabaseClass {
   end: string;
   location: string;
   max_participants: number;
-  participants: string[];
+  participants?: string[];
   description?: string;
   created_at: string;
 }
