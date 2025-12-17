@@ -106,7 +106,10 @@ check_supabase_connection()
 
 def get_authenticated_client(token: str) -> Client:
     """Create a Supabase client with user authentication (respects RLS policies)"""
-    return create_client(SUPABASE_URL, SUPABASE_KEY, {"Authorization": f"Bearer {token}"})
+    client = create_client(SUPABASE_URL, SUPABASE_KEY)
+    # Set the auth token on the postgrest client for RLS context
+    client.postgrest.auth(token)
+    return client
 
 def get_user_role(user_id: str) -> str:
     """Get user role from the secure user_roles table"""
