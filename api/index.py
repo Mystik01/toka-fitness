@@ -5,6 +5,7 @@ import os
 import sys
 from supabase import create_client, Client
 from dotenv import load_dotenv
+from datetime import datetime, timezone
 
 # Load .env file only in local development
 load_dotenv()
@@ -28,15 +29,19 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # Configure CORS for both development and production
-cors_origins = ["http://localhost:3001"]  # Development
+cors_origins = [
+    "http://localhost:3001",
+    "http://localhost:3000",
+    "http://127.0.0.1:3001",
+    "http://127.0.0.1:3000",
+]
 if os.environ.get('VERCEL_URL'):
     cors_origins.append(f"https://{os.environ.get('VERCEL_URL')}")
 if os.environ.get('VERCEL_PROJECT_PRODUCTION_URL'):
     cors_origins.append(f"https://{os.environ.get('VERCEL_PROJECT_PRODUCTION_URL')}")
-# Add your custom domain if you have one
 cors_origins.extend([
     "https://*.vercel.app",
-    "https://*.ommix.xyz"  # Replace with your actual domain if you have one
+    "https://*.ommix.xyz"
 ])
 
 CORS(
@@ -926,42 +931,46 @@ def get_staff_users():
         # First, let's try using the admin list_users with proper error handling
         try:
             response = supabase.auth.admin.list_users()
-            
-            # Filter for staff and admin users
+            users_list = response if isinstance(response, list) else getattr(response, 'users', [])
+
+            # Build a quick role map from user_roles table
+            role_map: dict[str, str] = {}
+            try:
+                roles_resp = supabase.table("user_roles").select("user_id, role").execute()
+                for r in getattr(roles_resp, 'data', []) or []:
+                    role_map[r.get("user_id")] = r.get("role", "user")
+            except Exception:
+                pass
+
             staff_users = []
-            for user in response:
-                # Handle both list and object responses
-                users_list = response if isinstance(response, list) else getattr(response, 'users', [])
-                for user in users_list:
-                    user_role = user.user_metadata.get("role", "user") if user.user_metadata else "user"
-                    if user_role in ["staff", "admin"]:
-                        display_name = user.user_metadata.get("display_name") if user.user_metadata else None
-                        first_name = user.user_metadata.get("first_name") if user.user_metadata else None
-                        last_name = user.user_metadata.get("last_name") if user.user_metadata else None
-                        
-                        # Build full name if available
-                        if display_name:
-                            name = display_name
-                        elif first_name and last_name:
-                            name = f"{first_name} {last_name}"
-                        elif first_name:
-                            name = first_name
-                        elif user.email:
-                            name = user.email.split('@')[0]  # Use email username as fallback
-                        else:
-                            name = "User"  # Fallback if no email available
-                        
-                        staff_users.append({
-                            "id": user.id,
-                            "email": user.email,
-                            "name": name,
-                            "role": user_role,
-                        })
-                break
-            
+            for u in users_list:
+                # Prefer secure role from user_roles; fallback to metadata
+                u_role = role_map.get(getattr(u, 'id', None)) or (getattr(u, 'user_metadata', {}) or {}).get("role", "user")
+                if u_role in ["staff", "admin"]:
+                    meta = getattr(u, 'user_metadata', {}) or {}
+                    display_name = meta.get("display_name")
+                    first_name = meta.get("first_name")
+                    last_name = meta.get("last_name")
+                    if display_name:
+                        name = display_name
+                    elif first_name and last_name:
+                        name = f"{first_name} {last_name}"
+                    elif first_name:
+                        name = first_name
+                    elif getattr(u, 'email', None):
+                        email = getattr(u, 'email', None)
+                        name = email.split('@')[0] if email else "User"
+                    else:
+                        name = "User"
+                    staff_users.append({
+                        "id": getattr(u, 'id', None),
+                        "email": getattr(u, 'email', None),
+                        "name": name,
+                        "role": u_role,
+                    })
+
             if not IS_VERCEL:
                 logger.info(f"✅ Fetched {len(staff_users)} staff users")
-            
             return jsonify({"staff_users": staff_users}), 200
             
         except Exception as admin_error:
@@ -982,19 +991,250 @@ def get_staff_users():
 
 @app.route("/api/classes", methods=["GET"])
 def get_classes():
-    """Fetch all classes from Supabase"""
+    """Fetch all classes with live enrollment counts"""
     try:
         response = supabase.table("classes").select("*").order("start", desc=False).execute()
         classes = response.data if hasattr(response, 'data') else []
-        
+
+        # Attach enrollment counts (source of truth: class_enrollments)
+        for cls in classes:
+            try:
+                count_resp = supabase.table("class_enrollments").select("id", count="exact").eq("class_id", cls.get("id")).execute()
+                cls["enrolled_count"] = count_resp.count if hasattr(count_resp, "count") else 0
+            except Exception:
+                cls["enrolled_count"] = 0
+
         if not IS_VERCEL:
-            logger.info(f"✅ Fetched {len(classes)} classes")
+            logger.info(f"✅ Fetched {len(classes)} classes with enrollment counts")
         
         return jsonify({"classes": classes}), 200
         
     except Exception as e:
         logger.error(f"❌ Error fetching classes: {str(e)}")
         return jsonify({"error": "Failed to fetch classes"}), 500
+
+# Profiles API
+@app.route("/api/profiles", methods=["GET"])
+def list_profiles():
+    """Return public-safe profiles for provided ids. Respects privacy (is_private)."""
+    try:
+        ids_param = request.args.get("ids", "").strip()
+        if not ids_param:
+            return jsonify({"profiles": []}), 200
+        ids = [i for i in {s.strip() for s in ids_param.split(",")} if i]
+
+        # Current user (to allow seeing their own private profile)
+        current_id = None
+        token = request.cookies.get("sb-access-token")
+        if token:
+            try:
+                u = supabase.auth.get_user(token)
+                if u and u.user:
+                    current_id = u.user.id
+            except Exception:
+                pass
+
+        resp = supabase.table("profiles").select(
+            "id, display_name, first_name, last_name, avatar_url, is_private"
+        ).in_("id", ids).execute()
+        rows = resp.data if hasattr(resp, 'data') else []
+
+        result = []
+        for r in rows:
+            if r.get("is_private") and r.get("id") != current_id:
+                # Skip private profiles for others
+                continue
+            name = r.get("display_name") or (f"{(r.get('first_name') or '').strip()} {(r.get('last_name') or '').strip()}".strip()) or None
+            result.append({
+                "id": r.get("id"),
+                "display_name": name,
+                "avatar_url": r.get("avatar_url"),
+                "is_private": r.get("is_private", False),
+            })
+        return jsonify({"profiles": result}), 200
+    except Exception as e:
+        logger.error(f"❌ Error listing profiles: {str(e)}")
+        return jsonify({"error": "Failed to fetch profiles"}), 500
+
+@app.route("/api/profiles/<user_id>", methods=["GET"])
+def get_profile(user_id):
+    """Return a single public-safe profile, respecting privacy."""
+    try:
+        current_id = None
+        token = request.cookies.get("sb-access-token")
+        if token:
+            try:
+                u = supabase.auth.get_user(token)
+                if u and u.user:
+                    current_id = u.user.id
+            except Exception:
+                pass
+
+        resp = supabase.table("profiles").select(
+            "id, display_name, first_name, last_name, avatar_url, is_private"
+        ).eq("id", user_id).single().execute()
+        r = resp.data if hasattr(resp, 'data') else None
+        if not r:
+            return jsonify({"error": "Profile not found"}), 404
+
+        if r.get("is_private") and r.get("id") != current_id:
+            return jsonify({"error": "Profile is private"}), 403
+
+        name = r.get("display_name") or (f"{(r.get('first_name') or '').strip()} {(r.get('last_name') or '').strip()}".strip()) or None
+        return jsonify({
+            "id": r.get("id"),
+            "display_name": name,
+            "avatar_url": r.get("avatar_url"),
+            "is_private": r.get("is_private", False),
+        }), 200
+    except Exception as e:
+        logger.error(f"❌ Error fetching profile: {str(e)}")
+        return jsonify({"error": "Failed to fetch profile"}), 500
+
+@app.route("/api/me/profile", methods=["PATCH"])
+def update_my_profile():
+    """Update current user's profile fields. Only avatar_url, bio, username, is_private allowed here.
+    For name fields, use /api/me PATCH with user_metadata (auth endpoint)."""
+    try:
+        token = request.cookies.get("sb-access-token")
+        refresh_token = request.cookies.get("sb-refresh-token")
+        if not token:
+            return jsonify({"error": "Not authenticated"}), 401
+
+        user = supabase.auth.get_user(token)
+        if not user or not user.user:
+            return jsonify({"error": "Invalid token"}), 401
+
+        user_id = user.user.id
+        data = request.get_json() or {}
+        
+        # Only allow safe, editable fields (names must go through auth endpoint)
+        allowed = {k: v for k, v in data.items() if k in [
+            "avatar_url", "bio", "username", "is_private"
+        ]}
+        if not allowed:
+            return jsonify({"error": "No valid fields. Note: use PATCH /api/me for name changes."}), 400
+
+        # Ensure profile exists
+        try:
+            supabase.table("profiles").insert({"id": user_id}).execute()
+        except Exception:
+            pass
+
+        updated = supabase.table("profiles").update(allowed).eq("id", user_id).execute()
+        row = (updated.data or [{}])[0] if hasattr(updated, 'data') else {}
+        return jsonify({"profile": row}), 200
+    except Exception as e:
+        logger.error(f"❌ Error updating profile: {str(e)}")
+        return jsonify({"error": "Failed to update profile"}), 500
+
+@app.route("/api/profiles/<user_id>/overview", methods=["GET"])
+def get_profile_overview(user_id):
+    """Return a user's profile overview: enrolled classes (upcoming/past), stats, and hosted classes if instructor.
+    Requires authentication. Respects profile privacy (is_private)."""
+    try:
+        # Require login
+        token = request.cookies.get("sb-access-token")
+        if not token:
+            return jsonify({"error": "Not authenticated"}), 401
+        viewer = supabase.auth.get_user(token)
+        if not viewer or not viewer.user:
+            return jsonify({"error": "Invalid token"}), 401
+        viewer_id = viewer.user.id
+
+        # Fetch profile with privacy flag
+        prof_resp = supabase.table("profiles").select(
+            "id, display_name, first_name, last_name, avatar_url, is_private"
+        ).eq("id", user_id).single().execute()
+        profile = prof_resp.data if hasattr(prof_resp, 'data') else None
+        if not profile:
+            return jsonify({"error": "Profile not found"}), 404
+        if profile.get("is_private") and user_id != viewer_id:
+            return jsonify({"error": "Profile is private"}), 403
+
+        name = profile.get("display_name") or (f"{(profile.get('first_name') or '').strip()} {(profile.get('last_name') or '').strip()}".strip()) or None
+
+        # Enrollments with class join
+        enr_resp = supabase.table("class_enrollments").select(
+            "enrolled_at, classes(*)"
+        ).eq("user_id", user_id).execute()
+        enrollments = enr_resp.data if hasattr(enr_resp, 'data') else []
+
+        # Normalize class rows and compute stats
+        def parse_dt(s):
+            if not s:
+                return None
+            try:
+                return datetime.fromisoformat(s.replace('Z', '+00:00'))
+            except Exception:
+                return None
+
+        classes_joined = []
+        type_counts = {}
+        total_seconds = 0
+        now = datetime.now(timezone.utc)
+        for row in enrollments:
+            c = row.get("classes") or {}
+            if not c:
+                continue
+            start = parse_dt(c.get("start"))
+            end = parse_dt(c.get("end"))
+            if start and end and end > start:
+                total_seconds += (end - start).total_seconds()
+            ct = c.get("class_type")
+            if ct:
+                type_counts[ct] = type_counts.get(ct, 0) + 1
+            classes_joined.append(c)
+
+        upcoming_enrolled = [c for c in classes_joined if parse_dt(c.get("start")) and parse_dt(c.get("start")) > now]
+        past_enrolled = [c for c in classes_joined if parse_dt(c.get("start")) and parse_dt(c.get("start")) <= now]
+
+        favorite_type = None
+        if type_counts:
+            favorite_type = max(type_counts.items(), key=lambda kv: kv[1])[0]
+        total_hours = round(total_seconds / 3600, 1)
+
+        # Hosted classes if instructor/admin
+        user_role = get_user_role(user_id)
+        hosted_upcoming = []
+        hosted_past = []
+        try:
+            if user_role in ["staff", "admin"]:
+                host_resp = supabase.table("classes").select("*").eq("instructor", user_id).order("start", desc=False).execute()
+                host_classes = host_resp.data if hasattr(host_resp, 'data') else []
+                for c in host_classes:
+                    if parse_dt(c.get("start")) and parse_dt(c.get("start")) > now:
+                        hosted_upcoming.append(c)
+                    else:
+                        hosted_past.append(c)
+        except Exception:
+            pass
+
+        return jsonify({
+            "profile": {
+                "id": profile.get("id"),
+                "display_name": name,
+                "avatar_url": profile.get("avatar_url"),
+                "is_private": profile.get("is_private", False),
+                "role": user_role,
+            },
+            "stats": {
+                "favorite_type": favorite_type,
+                "total_hours": total_hours,
+                "classes_joined": len(classes_joined),
+            },
+            "enrolled": {
+                "upcoming": upcoming_enrolled,
+                "past": past_enrolled,
+            },
+            "hosted": {
+                "upcoming": hosted_upcoming,
+                "past": hosted_past,
+            }
+        }), 200
+    except Exception as e:
+        logger.error(f"❌ Error building profile overview: {str(e)}")
+        return jsonify({"error": "Failed to fetch profile overview"}), 500
 
 @app.route("/api/classes", methods=["POST"])
 def create_class():
@@ -1111,6 +1351,197 @@ def delete_class(class_id):
     except Exception as e:
         logger.error(f"❌ Error deleting class: {str(e)}")
         return jsonify({"error": "Failed to delete class"}), 500
+
+@app.route("/api/classes/<class_id>/enroll", methods=["POST"])
+def enroll_in_class(class_id):
+    """Enroll current user in a class"""
+    try:
+        token = request.cookies.get("sb-access-token")
+        if not token:
+            return jsonify({"error": "Not authenticated"}), 401
+        
+        # Verify user
+        user = supabase.auth.get_user(token)
+        if not user or not user.user:
+            return jsonify({"error": "Invalid token"}), 401
+        
+        user_id = user.user.id
+        
+        # Check if class exists and get capacity
+        class_response = supabase.table("classes").select("id, max_participants").eq("id", class_id).single().execute()
+        if not class_response.data:
+            return jsonify({"error": "Class not found"}), 404
+        
+        class_data = class_response.data
+        max_participants = class_data.get("max_participants", 0)
+        
+        # Check current enrollment count
+        enrollment_count_response = supabase.table("class_enrollments").select("id", count="exact").eq("class_id", class_id).execute()
+        current_enrollments = enrollment_count_response.count if hasattr(enrollment_count_response, 'count') else 0
+        
+        if current_enrollments >= max_participants:
+            return jsonify({"error": "Class is full"}), 409
+        
+        # Check if already enrolled
+        existing_enrollment = supabase.table("class_enrollments").select("id").eq("user_id", user_id).eq("class_id", class_id).execute()
+        if existing_enrollment.data:
+            return jsonify({"error": "Already enrolled in this class"}), 409
+        
+        # Enroll user (RLS policy ensures user can only enroll themselves)
+        enrollment_data = {
+            "user_id": user_id,
+            "class_id": class_id  # UUID, don't cast to int
+        }
+        
+        response = supabase.table("class_enrollments").insert(enrollment_data).execute()
+        
+        if not IS_VERCEL:
+            logger.info(f"✅ User {user_id} enrolled in class {class_id}")
+        
+        return jsonify({
+            "message": "Successfully enrolled in class"
+        }), 201
+        
+    except Exception as e:
+        logger.error(f"❌ Error enrolling in class: {str(e)}")
+        return jsonify({"error": "Failed to enroll in class"}), 500
+
+@app.route("/api/classes/<class_id>/enroll", methods=["DELETE"])
+def unenroll_from_class(class_id):
+    """Unenroll current user from a class"""
+    try:
+        token = request.cookies.get("sb-access-token")
+        if not token:
+            return jsonify({"error": "Not authenticated"}), 401
+        
+        # Verify user
+        user = supabase.auth.get_user(token)
+        if not user or not user.user:
+            return jsonify({"error": "Invalid token"}), 401
+        
+        user_id = user.user.id
+        
+        # Check if enrolled
+        existing_enrollment = supabase.table("class_enrollments").select("id").eq("user_id", user_id).eq("class_id", class_id).execute()
+        if not existing_enrollment.data:
+            return jsonify({"error": "Not enrolled in this class"}), 404
+        
+        # Unenroll user (RLS policy ensures user can only unenroll themselves)
+        supabase.table("class_enrollments").delete().eq("user_id", user_id).eq("class_id", class_id).execute()
+        
+        if not IS_VERCEL:
+            logger.info(f"✅ User {user_id} unenrolled from class {class_id}")
+        
+        return jsonify({"message": "Successfully unenrolled from class"}), 200
+        
+    except Exception as e:
+        logger.error(f"❌ Error unenrolling from class: {str(e)}")
+        return jsonify({"error": "Failed to unenroll from class"}), 500
+
+@app.route("/api/my-enrollments", methods=["GET"])
+def get_my_enrollments():
+    """Get current user's enrolled classes"""
+    try:
+        token = request.cookies.get("sb-access-token")
+        if not token:
+            return jsonify({"error": "Not authenticated"}), 401
+        
+        # Verify user
+        user = supabase.auth.get_user(token)
+        if not user or not user.user:
+            return jsonify({"error": "Invalid token"}), 401
+        
+        user_id = user.user.id
+        
+        # Get user's enrollments with class details joined
+        response = supabase.table("class_enrollments").select(
+            "id, enrolled_at, class_id, classes(*)"
+        ).eq("user_id", user_id).execute()
+        
+        enrollments = response.data if hasattr(response, 'data') else []
+        
+        # Transform to include class details at top level
+        enrolled_classes = []
+        for enrollment in enrollments:
+            if enrollment.get("classes"):
+                class_data = enrollment["classes"]
+                class_data["enrollment_id"] = enrollment["id"]
+                class_data["enrolled_at"] = enrollment["enrolled_at"]
+                enrolled_classes.append(class_data)
+        
+        if not IS_VERCEL:
+            logger.info(f"✅ Fetched {len(enrolled_classes)} enrollments for user {user_id}")
+        
+        return jsonify({"enrolled_classes": enrolled_classes}), 200
+        
+    except Exception as e:
+        logger.error(f"❌ Error fetching enrollments: {str(e)}")
+        return jsonify({"error": "Failed to fetch enrollments"}), 500
+
+@app.route("/api/classes/<class_id>/enrollments", methods=["GET"])
+def get_class_enrollments(class_id):
+    """Get roster for a class (user ids + optional display info)"""
+    try:
+        # Fetch enrollments for class
+        resp = supabase.table("class_enrollments").select("user_id, enrolled_at").eq("class_id", class_id).order("enrolled_at", desc=False).execute()
+        enrollments = resp.data if hasattr(resp, 'data') else []
+
+        # Try to enrich with user details if service role is available
+        detailed = []
+        for row in enrollments:
+            user_info = {"user_id": row.get("user_id"), "enrolled_at": row.get("enrolled_at")}
+            try:
+                admin_user = supabase.auth.admin.get_user_by_id(row.get("user_id"))
+                if admin_user and getattr(admin_user, 'user', None):
+                    u = admin_user.user
+                    meta = getattr(u, 'user_metadata', {}) or {}
+                    display_name = meta.get("display_name") or (f"{meta.get('first_name','').strip()} {meta.get('last_name','').strip()}".strip())
+                    user_info.update({
+                        "email": getattr(u, 'email', None),
+                        "display_name": display_name or (getattr(u, 'email', None) or "User"),
+                    })
+            except Exception:
+                pass
+            detailed.append(user_info)
+
+        return jsonify({"enrollments": detailed}), 200
+    except Exception as e:
+        logger.error(f"❌ Error fetching class enrollments: {str(e)}")
+        return jsonify({"error": "Failed to fetch class enrollments"}), 500
+
+@app.route("/api/classes/<class_id>/enrollments/<user_id>", methods=["DELETE"])
+def remove_user_from_class(class_id, user_id):
+    """Remove a user from a class (staff only)"""
+    try:
+        token = request.cookies.get("sb-access-token")
+        if not token:
+            return jsonify({"error": "Not authenticated"}), 401
+        
+        # Verify current user is staff
+        current_user = supabase.auth.get_user(token)
+        if not current_user or not current_user.user:
+            return jsonify({"error": "Invalid token"}), 401
+        
+        current_user_role = get_user_role(current_user.user.id)
+        if current_user_role not in ["staff", "admin"]:
+            return jsonify({"error": "Only staff can remove users from classes"}), 403
+        
+        # Check if user is enrolled
+        existing_enrollment = supabase.table("class_enrollments").select("id").eq("user_id", user_id).eq("class_id", class_id).execute()
+        if not existing_enrollment.data:
+            return jsonify({"error": "User not enrolled in this class"}), 404
+        
+        # Remove user from class
+        supabase.table("class_enrollments").delete().eq("user_id", user_id).eq("class_id", class_id).execute()
+        
+        if not IS_VERCEL:
+            logger.info(f"✅ Staff {current_user.user.id} removed user {user_id} from class {class_id}")
+        
+        return jsonify({"message": "User removed from class"}), 200
+        
+    except Exception as e:
+        logger.error(f"❌ Error removing user from class: {str(e)}")
+        return jsonify({"error": "Failed to remove user from class"}), 500
 
 # For local development
 if __name__ == "__main__":

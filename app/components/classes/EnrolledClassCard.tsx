@@ -3,8 +3,21 @@
 import { FitnessClass } from '@/app/lib/types/class';
 import { Calendar, Clock, MapPin, Users, X } from 'lucide-react';
 
+// Database class type (from API)
+interface DatabaseClass {
+  id: number;
+  class_name: string;
+  class_type: string;
+  instructor: string;
+  instructor_name?: string;
+  start: string;
+  end: string;
+  location: string;
+  max_participants: number;
+}
+
 interface EnrolledClassCardProps {
-  fitnessClass: FitnessClass;
+  fitnessClass: FitnessClass | DatabaseClass;
   onCancel?: (classId: string) => void;
   onViewDetails?: (classId: string) => void;
 }
@@ -14,6 +27,19 @@ export default function EnrolledClassCard({
   onCancel, 
   onViewDetails 
 }: EnrolledClassCardProps) {
+  // Normalize data from either type
+  const isDbClass = 'class_name' in fitnessClass;
+  
+  const id = String(fitnessClass.id);
+  const name = isDbClass ? fitnessClass.class_name : fitnessClass.name;
+  const type = isDbClass ? fitnessClass.class_type : fitnessClass.type;
+  const instructor = isDbClass
+    ? (fitnessClass as any).instructor_name || fitnessClass.instructor
+    : fitnessClass.instructor;
+  const location = fitnessClass.location;
+  const startTime = isDbClass ? new Date(fitnessClass.start) : new Date(fitnessClass.startTime);
+  const instructorImage = isDbClass ? '👤' : fitnessClass.instructorImage;
+
   const formatTime = (date: Date) => {
     return new Date(date).toLocaleTimeString('en-US', { 
       hour: 'numeric', 
@@ -42,7 +68,7 @@ export default function EnrolledClassCard({
     }
   };
 
-  const getTypeEmoji = (type: string) => {
+  const getTypeEmoji = (classType: string) => {
     const emojis: Record<string, string> = {
       yoga: '🧘',
       hiit: '💪',
@@ -53,7 +79,7 @@ export default function EnrolledClassCard({
       dance: '💃',
       strength: '🏋️',
     };
-    return emojis[type] || '🏃';
+    return emojis[classType] || '🏃';
   };
 
   return (
@@ -63,46 +89,46 @@ export default function EnrolledClassCard({
         <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
           ✅ Enrolled
         </span>
-        <span className="text-2xl">{getTypeEmoji(fitnessClass.type)}</span>
+        <span className="text-2xl">{getTypeEmoji(type)}</span>
       </div>
 
       {/* Class Name */}
       <h3 className="text-lg font-semibold text-gray-900 mb-2">
-        {fitnessClass.name}
+        {name}
       </h3>
 
       {/* Time & Date */}
       <div className="space-y-2 mb-3">
         <div className="flex items-center text-sm text-gray-600">
           <Calendar className="w-4 h-4 mr-2" />
-          <span className="font-medium">{formatDate(fitnessClass.startTime)}</span>
+          <span className="font-medium">{formatDate(startTime)}</span>
           <span className="mx-1">•</span>
           <Clock className="w-4 h-4 mr-1" />
-          <span>{formatTime(fitnessClass.startTime)}</span>
+          <span>{formatTime(startTime)}</span>
         </div>
         
         <div className="flex items-center text-sm text-gray-600">
           <MapPin className="w-4 h-4 mr-2" />
-          <span>{fitnessClass.location}</span>
+          <span>{location}</span>
         </div>
       </div>
 
       {/* Instructor */}
       <div className="flex items-center mb-4">
-        <span className="text-xl mr-2">{fitnessClass.instructorImage}</span>
-        <span className="text-sm text-gray-700">{fitnessClass.instructor}</span>
+        <span className="text-xl mr-2">{instructorImage}</span>
+        <span className="text-sm text-gray-700">{instructor}</span>
       </div>
 
       {/* Actions */}
       <div className="flex gap-2">
         <button
-          onClick={() => onViewDetails?.(fitnessClass.id)}
+          onClick={() => onViewDetails?.(id)}
           className="flex-1 px-3 py-2 text-sm font-medium text-indigo-600 bg-indigo-50 rounded-md hover:bg-indigo-100 transition-colors"
         >
           View Details
         </button>
         <button
-          onClick={() => onCancel?.(fitnessClass.id)}
+          onClick={() => onCancel?.(id)}
           className="px-3 py-2 text-sm font-medium text-red-600 bg-red-50 rounded-md hover:bg-red-100 transition-colors flex items-center"
         >
           <X className="w-4 h-4" />

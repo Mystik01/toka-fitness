@@ -8,7 +8,7 @@ import { useUserRole } from '@/app/hooks/useUserRole';
 import { getApiUrl } from '@/app/lib/apiClient';
 
 interface DatabaseClass {
-  id?: number;
+  id?: string;
   class_name: string;
   class_type: string;
   instructor: string;
@@ -16,7 +16,7 @@ interface DatabaseClass {
   end: string;
   location: string;
   max_participants: number;
-  participants?: string[];
+  enrolled_count?: number;
   description?: string;
   created_at?: string;
 }
@@ -31,7 +31,7 @@ export default function ManageClassesPage() {
   const [classes, setClasses] = useState<DatabaseClass[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [staffUsers, setStaffUsers] = useState<Array<{ id: string; email: string; name: string; role: string }>>([]);
@@ -198,18 +198,17 @@ export default function ManageClassesPage() {
     setShowForm(true);
   };
 
-  const handleDelete = async (id: number) => {
+  const handleDelete = async (id: string) => {
     if (!confirm('Are you sure you want to delete this class?')) {
       return;
     }
 
     try {
       setSubmitting(true);
-      const response = await fetch(`${getApiUrl()}/api/classes`, {
+      const response = await fetch(`${getApiUrl()}/api/classes/${id}`, {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ id }),
       });
 
       if (response.ok) {
@@ -632,7 +631,7 @@ export default function ManageClassesPage() {
                   </td>
                   <td style={{ padding: '1rem', fontSize: '0.875rem', color: '#111827' }}>{fitnessClass.location}</td>
                   <td style={{ padding: '1rem', fontSize: '0.875rem', color: '#111827' }}>
-                    {fitnessClass.participants?.length || 0} / {fitnessClass.max_participants}
+                    {fitnessClass.enrolled_count ?? 0} / {fitnessClass.max_participants}
                   </td>
                   <td
                     style={{

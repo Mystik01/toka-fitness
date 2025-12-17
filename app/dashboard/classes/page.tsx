@@ -13,7 +13,7 @@ import { canUserPerformAction } from '@/app/lib/roles';
 import { getApiUrl } from '@/app/lib/apiClient';
 
 interface DatabaseClass {
-  id: number;
+  id: string;
   class_name: string;
   class_type: string;
   instructor: string;
@@ -22,7 +22,8 @@ interface DatabaseClass {
   end: string;
   location: string;
   max_participants: number;
-  participants: string[];
+  enrolled_count?: number;
+  participants?: string[];
   description?: string;
   created_at: string;
 }
@@ -36,6 +37,11 @@ export default function ClassesPage() {
   const [classesError, setClassesError] = useState<string | null>(null);
   const [staffMap, setStaffMap] = useState<Record<string, string>>({});
   const [selectedClassId, setSelectedClassId] = useState<string | null>(null);
+  const [enrolledClassIds, setEnrolledClassIds] = useState<Set<string>>(new Set());
+  const [enrolledDbClasses, setEnrolledDbClasses] = useState<DatabaseClass[]>([]);
+  const [loadingEnrollments, setLoadingEnrollments] = useState(true);
+  const [classEnrollments, setClassEnrollments] = useState<any[]>([]);
+  const [loadingClassEnrollments, setLoadingClassEnrollments] = useState(false);
 
   const { role, loading: roleLoading } = useUserRole();
   const isStaff = role === 'staff' || role === 'admin';
@@ -43,33 +49,79 @@ export default function ClassesPage() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
-  // Track selection from URL using ?class=<id> to stay on this page
+  // Fetch enrollments for selected class
   useEffect(() => {
-    const idFromQuery = searchParams.get('class');
-    setSelectedClassId(idFromQuery);
-  }, [searchParams]);
+    if (!selectedClassId) {
+      setClassEnrollments([]);
+      return;
+    }
 
-  // Fetch staff users to map instructor IDs to display names
-  useEffect(() => {
-    const fetchStaffUsers = async () => {
+    const fetchEnrollments = async () => {
       try {
-        const response = await fetch(`${getApiUrl()}/api/staff-users`);
+        setLoadingClassEnrollments(true);
+        const response = await fetch(`${getApiUrl()}/api/classes/${selectedClassId}/enrollments`);
         const data = await response.json();
-        if (response.ok && Array.isArray(data.staff_users)) {
+        
+        if (response.ok && Array.isArray(data.enrollments)) {
+          setClassEnrollments(data.enrollments);
+        }
+      } catch (err) {
+        console.error('Error fetching enrollments:', err);
+      } finally {
+        setLoadingClassEnrollments(false);
+      }
+    };
+
+    fetchEnrollments();
+  }, [selectedClassId]);
+
+  // Fetch instructor display names from public profiles
+  useEffect(() => {
+    const fetchInstructorProfiles = async () => {
+      try {
+        const ids = Array.from(new Set(dbClasses.map((c) => String(c.instructor)).filter(Boolean)));
+        if (ids.length === 0) return;
+        const response = await fetch(`${getApiUrl()}/api/profiles?ids=${encodeURIComponent(ids.join(','))}`);
+        const data = await response.json();
+        if (response.ok && Array.isArray(data.profiles)) {
           const map: Record<string, string> = {};
-          data.staff_users.forEach((u: any) => {
-            if (u?.id) {
-              map[u.id] = u.name || u.email || u.id;
+          data.profiles.forEach((p: any) => {
+            if (p?.id) {
+              map[p.id] = p.display_name || p.id;
             }
           });
           setStaffMap(map);
         }
       } catch (err) {
-        console.warn('Failed to fetch staff users for display map', err);
+        console.warn('Failed to fetch instructor profiles', err);
+      }
+    };
+    fetchInstructorProfiles();
+  }, [dbClasses]);
+
+  // Fetch user's enrolled classes
+  useEffect(() => {
+    const fetchEnrollments = async () => {
+      try {
+        setLoadingEnrollments(true);
+        const response = await fetch(`${getApiUrl()}/api/my-enrollments`, {
+          credentials: 'include'
+        });
+        const data = await response.json();
+        
+        if (response.ok && Array.isArray(data.enrolled_classes)) {
+          setEnrolledDbClasses(data.enrolled_classes);
+          const ids = new Set<string>(data.enrolled_classes.map((c: any) => String(c.id)));
+          setEnrolledClassIds(ids);
+        }
+      } catch (err) {
+        console.error('Error fetching enrollments:', err);
+      } finally {
+        setLoadingEnrollments(false);
       }
     };
 
-    fetchStaffUsers();
+    fetchEnrollments();
   }, []);
 
   // Fetch classes from database
@@ -101,11 +153,10 @@ export default function ClassesPage() {
     fetchClasses();
   }, []);
 
-  const enrolledClasses: FitnessClass[] = [];
-  
-  // Filter available classes (no mock fallback)
+  // Filter available classes to exclude enrolled ones
   const availableClasses = dbClasses
     .filter((fitnessClass) => fitnessClass && typeof fitnessClass === 'object')
+    .filter((fitnessClass) => !enrolledClassIds.has(String(fitnessClass.id)))
     .filter((fitnessClass) => {
     const className = 'class_name' in fitnessClass ? (fitnessClass as DatabaseClass).class_name : (fitnessClass as FitnessClass).name;
     const classType = 'class_type' in fitnessClass ? (fitnessClass as DatabaseClass).class_type : (fitnessClass as FitnessClass).type;
@@ -129,17 +180,60 @@ export default function ClassesPage() {
     { value: 'swimming', label: 'Swimming', emoji: '🏊' },
   ];
 
-  const handleJoinClass = (classId: string) => {
-    console.log('Joining class:', classId);
-    // TODO: Implement API call to join class
-    alert(`Joined class ${classId}! (This will be connected to the backend later)`);
+  const handleJoinClass = async (classId: string) => {
+    try {
+      const response = await fetch(`${getApiUrl()}/api/classes/${classId}/enroll`, {
+        method: 'POST',
+        credentials: 'include'
+      });
+      
+      const data = await response.json();
+      
+      if (response.ok) {
+        // Move class from available to enrolled
+        const enrolledClass = dbClasses.find(c => String(c.id) === classId);
+        if (enrolledClass) {
+          setEnrolledDbClasses(prev => [...prev, enrolledClass]);
+          setEnrolledClassIds(prev => new Set([...Array.from(prev), String(enrolledClass.id)]));
+        }
+        alert('Successfully enrolled in class!');
+      } else {
+        alert(data.error || 'Failed to enroll in class');
+      }
+    } catch (err) {
+      console.error('Error enrolling:', err);
+      alert('Network error. Please try again.');
+    }
   };
 
-  const handleCancelClass = (classId: string) => {
-    console.log('Canceling class:', classId);
-    // TODO: Implement API call to cancel enrollment
-    if (confirm('Are you sure you want to cancel this class?')) {
-      alert(`Cancelled class ${classId}! (This will be connected to the backend later)`);
+  const handleCancelClass = async (classId: string) => {
+    if (!confirm('Are you sure you want to cancel this class?')) {
+      return;
+    }
+    
+    try {
+      const response = await fetch(`${getApiUrl()}/api/classes/${classId}/enroll`, {
+        method: 'DELETE',
+        credentials: 'include'
+      });
+      
+      const data = await response.json();
+      
+      if (response.ok) {
+        // Move class from enrolled to available
+        setEnrolledDbClasses(prev => prev.filter(c => String(c.id) !== classId));
+        setEnrolledClassIds(prev => {
+          const next = new Set(prev);
+          next.delete(String(classId));
+          return next;
+        });
+        alert('Successfully unenrolled from class');
+      } else {
+        alert(data.error || 'Failed to unenroll from class');
+      }
+    } catch (err) {
+      console.error('Error unenrolling:', err);
+      alert('Network error. Please try again.');
     }
   };
 
@@ -177,6 +271,28 @@ export default function ClassesPage() {
     }
   };
 
+  const handleRemoveUserFromClass = async (classId: string, userId: string) => {
+    if (!confirm('Remove this user from the class?')) return;
+    
+    try {
+      const response = await fetch(`${getApiUrl()}/api/classes/${classId}/enrollments/${userId}`, {
+        method: 'DELETE',
+        credentials: 'include'
+      });
+      
+      if (response.ok) {
+        // Refresh the enrollments list
+        setClassEnrollments(prev => prev.filter(e => e.user_id !== userId));
+        alert('User removed from class');
+      } else {
+        const data = await response.json();
+        alert(data.error || 'Failed to remove user');
+      }
+    } catch (err) {
+      console.error('Error removing user:', err);
+      alert('Network error');
+    }
+  };
   const handleViewDetails = (classId: string) => {
     setSelectedClassId(classId);
     const params = new URLSearchParams(searchParams.toString());
@@ -246,7 +362,7 @@ export default function ClassesPage() {
         <div className={styles.flexBetween}>
           <div>
             <h2 className={styles.sectionTitle}>
-              📅 My Upcoming Classes ({enrolledClasses.length})
+              📅 My Upcoming Classes ({enrolledDbClasses.length})
             </h2>
             <p className={styles.smallMuted}>
               Your enrolled classes for this week
@@ -258,17 +374,24 @@ export default function ClassesPage() {
           </button>
         </div>
 
-        {enrolledClasses.length === 0 ? (
+        {loadingEnrollments ? (
+          <div className={styles.emptyCenter}>
+            <p className={styles.mutedText}>Loading your classes...</p>
+          </div>
+        ) : enrolledDbClasses.length === 0 ? (
           <div className={styles.emptyCenter}>
             <p className={styles.mutedText}>You haven't enrolled in any classes yet.</p>
             <p className={styles.smallMutedAlt}>Browse available classes below to get started!</p>
           </div>
         ) : (
           <div className={styles.cardGrid}>
-            {enrolledClasses.map((fitnessClass) => (
+            {enrolledDbClasses.map((dbClass) => (
               <EnrolledClassCard
-                key={fitnessClass.id}
-                fitnessClass={fitnessClass}
+                key={dbClass.id}
+                fitnessClass={{
+                  ...dbClass,
+                  instructor_name: staffMap[dbClass.instructor] || dbClass.instructor,
+                } as any}
                 onCancel={handleCancelClass}
                 onViewDetails={handleViewDetails}
               />
@@ -416,7 +539,7 @@ export default function ClassesPage() {
                 <div>
                   <p className="text-xs uppercase tracking-wide text-gray-500">Capacity</p>
                   <p className="text-sm text-gray-900 mt-1">
-                    {selectedClass.participants?.length || 0} / {selectedClass.max_participants}
+                    {classEnrollments.length || selectedClass.enrolled_count || 0} / {selectedClass.max_participants}
                   </p>
                 </div>
               </div>
@@ -431,17 +554,27 @@ export default function ClassesPage() {
               <div className="space-y-2">
                 <div className="flex items-center gap-2 text-sm font-semibold text-gray-900">
                   <UsersIcon className="w-4 h-4 text-gray-600" />
-                  Participants ({selectedClass.participants?.length || 0})
+                  Participants ({classEnrollments.length})
                 </div>
-                {selectedClass.participants && selectedClass.participants.length > 0 ? (
-                  <div className="flex flex-wrap gap-2">
-                    {selectedClass.participants.map((p, idx) => (
-                      <span
-                        key={`${p}-${idx}`}
-                        className="px-3 py-1 text-xs font-medium bg-gray-100 text-gray-800 rounded-full"
-                      >
-                        {p}
-                      </span>
+                {loadingClassEnrollments ? (
+                  <p className="text-sm text-gray-600">Loading participants...</p>
+                ) : classEnrollments.length > 0 ? (
+                  <div className="space-y-2 max-h-48 overflow-y-auto">
+                    {classEnrollments.map((enrollment) => (
+                      <div key={enrollment.user_id} className="flex items-center justify-between gap-2 px-3 py-2 bg-gray-50 rounded-lg text-sm">
+                        <div>
+                          <p className="font-medium text-gray-900">{enrollment.display_name || 'User'}</p>
+                          {enrollment.email && <p className="text-xs text-gray-600">{enrollment.email}</p>}
+                        </div>
+                        {isStaff && !roleLoading && (
+                          <button
+                            onClick={() => selectedClassId && handleRemoveUserFromClass(selectedClassId, enrollment.user_id)}
+                            className="px-2 py-1 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200 transition-colors"
+                          >
+                            Remove
+                          </button>
+                        )}
+                      </div>
                     ))}
                   </div>
                 ) : (
