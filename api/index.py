@@ -104,6 +104,10 @@ def check_supabase_connection():
 # Check connection on startup
 check_supabase_connection()
 
+def get_authenticated_client(token: str) -> Client:
+    """Create a Supabase client with user authentication (respects RLS policies)"""
+    return create_client(SUPABASE_URL, SUPABASE_KEY, {"Authorization": f"Bearer {token}"})
+
 def get_user_role(user_id: str) -> str:
     """Get user role from the secure user_roles table"""
     try:
@@ -1367,8 +1371,11 @@ def enroll_in_class(class_id):
         
         user_id = user.user.id
         
+        # Create authenticated client for RLS enforcement
+        auth_client = get_authenticated_client(token)
+        
         # Check if class exists and get capacity
-        class_response = supabase.table("classes").select("id, max_participants").eq("id", class_id).single().execute()
+        class_response = auth_client.table("classes").select("id, max_participants").eq("id", class_id).single().execute()
         if not class_response.data:
             return jsonify({"error": "Class not found"}), 404
         
@@ -1376,24 +1383,24 @@ def enroll_in_class(class_id):
         max_participants = class_data.get("max_participants", 0)
         
         # Check current enrollment count
-        enrollment_count_response = supabase.table("class_enrollments").select("id", count="exact").eq("class_id", class_id).execute()
+        enrollment_count_response = auth_client.table("class_enrollments").select("id", count="exact").eq("class_id", class_id).execute()
         current_enrollments = enrollment_count_response.count if hasattr(enrollment_count_response, 'count') else 0
         
         if current_enrollments >= max_participants:
             return jsonify({"error": "Class is full"}), 409
         
         # Check if already enrolled
-        existing_enrollment = supabase.table("class_enrollments").select("id").eq("user_id", user_id).eq("class_id", class_id).execute()
+        existing_enrollment = auth_client.table("class_enrollments").select("id").eq("user_id", user_id).eq("class_id", class_id).execute()
         if existing_enrollment.data:
             return jsonify({"error": "Already enrolled in this class"}), 409
         
-        # Enroll user (RLS policy ensures user can only enroll themselves)
+        # Enroll user using authenticated client (RLS policy ensures user can only enroll themselves)
         enrollment_data = {
             "user_id": user_id,
             "class_id": class_id  # UUID, don't cast to int
         }
         
-        response = supabase.table("class_enrollments").insert(enrollment_data).execute()
+        response = auth_client.table("class_enrollments").insert(enrollment_data).execute()
         
         if not IS_VERCEL:
             logger.info(f"✅ User {user_id} enrolled in class {class_id}")
@@ -1421,13 +1428,16 @@ def unenroll_from_class(class_id):
         
         user_id = user.user.id
         
+        # Create authenticated client for RLS enforcement
+        auth_client = get_authenticated_client(token)
+        
         # Check if enrolled
-        existing_enrollment = supabase.table("class_enrollments").select("id").eq("user_id", user_id).eq("class_id", class_id).execute()
+        existing_enrollment = auth_client.table("class_enrollments").select("id").eq("user_id", user_id).eq("class_id", class_id).execute()
         if not existing_enrollment.data:
             return jsonify({"error": "Not enrolled in this class"}), 404
         
-        # Unenroll user (RLS policy ensures user can only unenroll themselves)
-        supabase.table("class_enrollments").delete().eq("user_id", user_id).eq("class_id", class_id).execute()
+        # Unenroll user using authenticated client (RLS policy ensures user can only unenroll themselves)
+        auth_client.table("class_enrollments").delete().eq("user_id", user_id).eq("class_id", class_id).execute()
         
         if not IS_VERCEL:
             logger.info(f"✅ User {user_id} unenrolled from class {class_id}")
