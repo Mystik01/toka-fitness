@@ -4,15 +4,16 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Bell, Palette, Globe, Shield, User as UserIcon } from 'lucide-react';
+import { useTheme } from 'next-themes';
 
 export default function SettingsPage() {
   const pathname = usePathname();
+  const { theme, setTheme } = useTheme();
   
   // General Settings State
   const [emailNotifications, setEmailNotifications] = useState(true);
   const [pushNotifications, setPushNotifications] = useState(false);
   const [weeklyDigest, setWeeklyDigest] = useState(true);
-  const [theme, setTheme] = useState<'light' | 'dark' | 'auto'>('light');
   const [language, setLanguage] = useState('en');
 
   const handleSaveGeneral = () => {
@@ -27,22 +28,22 @@ export default function SettingsPage() {
     <div className="max-w-4xl mx-auto space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-3xl font-bold text-gray-900">Settings</h1>
-        <p className="mt-2 text-gray-600">
+        <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Settings</h1>
+        <p className="mt-2 text-gray-600 dark:text-gray-400">
           Manage your account settings and preferences
         </p>
       </div>
 
       {/* Tabs */}
-      <div className="bg-white rounded-lg shadow-sm border">
-        <div className="border-b border-gray-200">
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border dark:border-gray-700">
+        <div className="border-b border-gray-200 dark:border-gray-700">
           <nav className="flex -mb-px">
             <Link
               href="/dashboard/settings"
               className={`flex items-center px-6 py-4 text-sm font-medium border-b-2 transition-colors ${
                 isSettingsActive
-                  ? 'border-indigo-600 text-indigo-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-200'
               }`}
             >
               <Shield className="w-5 h-5 mr-2" />
@@ -52,8 +53,8 @@ export default function SettingsPage() {
               href="/dashboard/account"
               className={`flex items-center px-6 py-4 text-sm font-medium border-b-2 transition-colors ${
                 isAccountActive
-                  ? 'border-indigo-600 text-indigo-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-200'
               }`}
             >
               <UserIcon className="w-5 h-5 mr-2" />
@@ -67,15 +68,15 @@ export default function SettingsPage() {
           <div className="space-y-6">
             {/* Notifications Section */}
             <div>
-              <h3 className="text-lg font-semibold text-gray-900 flex items-center mb-4">
-                <Bell className="w-5 h-5 mr-2 text-indigo-600" />
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center mb-4">
+                <Bell className="w-5 h-5 mr-2 text-indigo-600 dark:text-indigo-400" />
                 Notifications
               </h3>
               <div className="space-y-4">
-                <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                <div className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
                   <div>
-                    <p className="font-medium text-gray-900">Email Notifications</p>
-                    <p className="text-sm text-gray-500">Receive email updates about your classes and activity</p>
+                    <p className="font-medium text-gray-900 dark:text-white">Email Notifications</p>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">Receive email updates about your classes and activity</p>
                   </div>
                   <label className="relative inline-flex items-center cursor-pointer">
                     <input
@@ -84,14 +85,14 @@ export default function SettingsPage() {
                       onChange={(e) => setEmailNotifications(e.target.checked)}
                       className="sr-only peer"
                     />
-                    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-indigo-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+                    <div className="w-11 h-6 bg-gray-200 dark:bg-gray-600 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-indigo-300 dark:peer-focus:ring-indigo-800 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
                   </label>
                 </div>
 
-                <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                <div className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
                   <div>
-                    <p className="font-medium text-gray-900">Push Notifications</p>
-                    <p className="text-sm text-gray-500">Get push notifications on your devices</p>
+                    <p className="font-medium text-gray-900 dark:text-white">Push Notifications</p>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">Get push notifications on your devices</p>
                   </div>
                   <label className="relative inline-flex items-center cursor-pointer">
                     <input
@@ -100,14 +101,14 @@ export default function SettingsPage() {
                       onChange={(e) => setPushNotifications(e.target.checked)}
                       className="sr-only peer"
                     />
-                    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-indigo-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+                    <div className="w-11 h-6 bg-gray-200 dark:bg-gray-600 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-indigo-300 dark:peer-focus:ring-indigo-800 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
                   </label>
                 </div>
 
-                <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                <div className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
                   <div>
-                    <p className="font-medium text-gray-900">Weekly Digest</p>
-                    <p className="text-sm text-gray-500">Get a weekly summary of your fitness progress</p>
+                    <p className="font-medium text-gray-900 dark:text-white">Weekly Digest</p>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">Get a weekly summary of your fitness progress</p>
                   </div>
                   <label className="relative inline-flex items-center cursor-pointer">
                     <input
@@ -116,7 +117,7 @@ export default function SettingsPage() {
                       onChange={(e) => setWeeklyDigest(e.target.checked)}
                       className="sr-only peer"
                     />
-                    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-indigo-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+                    <div className="w-11 h-6 bg-gray-200 dark:bg-gray-600 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-indigo-300 dark:peer-focus:ring-indigo-800 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
                   </label>
                 </div>
               </div>
@@ -124,27 +125,27 @@ export default function SettingsPage() {
 
             {/* Appearance Section */}
             <div>
-              <h3 className="text-lg font-semibold text-gray-900 flex items-center mb-4">
-                <Palette className="w-5 h-5 mr-2 text-indigo-600" />
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center mb-4">
+                <Palette className="w-5 h-5 mr-2 text-indigo-600 dark:text-indigo-400" />
                 Appearance
               </h3>
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                     Theme
                   </label>
                   <div className="grid grid-cols-3 gap-3">
-                    {(['light', 'dark', 'auto'] as const).map((themeOption) => (
+                    {(['light', 'dark', 'system'] as const).map((themeOption) => (
                       <button
                         key={themeOption}
                         onClick={() => setTheme(themeOption)}
                         className={`p-4 border-2 rounded-lg text-center transition-all ${
                           theme === themeOption
-                            ? 'border-indigo-600 bg-indigo-50'
-                            : 'border-gray-200 hover:border-gray-300'
+                            ? 'border-indigo-600 bg-indigo-50 dark:bg-indigo-900/20 dark:border-indigo-400'
+                            : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600'
                         }`}
                       >
-                        <p className="font-medium capitalize">{themeOption}</p>
+                        <p className="font-medium capitalize text-gray-900 dark:text-white">{themeOption}</p>
                       </button>
                     ))}
                   </div>

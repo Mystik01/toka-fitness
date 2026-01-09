@@ -74,10 +74,19 @@ DROP POLICY IF EXISTS "Owners can read own profile" ON public.profiles;
 DROP POLICY IF EXISTS "Users can insert own profile" ON public.profiles;
 DROP POLICY IF EXISTS "Users can update own profile" ON public.profiles;
 
--- SELECT: Anyone can view non-private profiles; owners always see their own
+-- SELECT: Non-private profiles visible to all; private profiles only to owner or staff
 CREATE POLICY "Public can read non-private profiles"
 	ON public.profiles FOR SELECT
-	USING (NOT is_private OR auth.uid() = id);
+	USING (
+		NOT is_private
+		OR auth.uid() = id
+		OR EXISTS (
+			SELECT 1
+			FROM user_roles ur
+			WHERE ur.user_id = auth.uid()
+			AND ur.role IN ('staff', 'admin')
+		)
+	);
 
 -- INSERT: Users can only insert their own profile row
 CREATE POLICY "Users can insert own profile"

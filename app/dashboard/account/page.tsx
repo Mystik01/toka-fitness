@@ -343,20 +343,10 @@ export default function AccountPage() {
                 <h3 className="text-lg font-semibold text-gray-900 mb-4">Account Actions</h3>
                 <div className="space-y-4">
                   <div>
-                    <label className="block text-sm font-medium">New Email</label>
-                    <input
-                      type="email"
-                      className="mt-1 w-full rounded border px-3 py-2"
-                      value={newEmail}
-                      onChange={(e) => setNewEmail(e.target.value)}
-                      placeholder="you@example.com"
-                    />
-                    <button
-                      className="mt-2 inline-flex items-center rounded bg-blue-600 px-3 py-2 text-white hover:bg-blue-700"
-                      onClick={handleChangeEmail}
-                    >
-                      Change Email
-                    </button>
+                    <label className="block text-sm font-medium text-gray-700">Email Address</label>
+                    <div className="mt-1 p-3 bg-gray-100 text-gray-500 rounded border border-gray-200 text-sm">
+                      You are unable to change your email at this time.
+                    </div>
                   </div>
                   <div>
                     <label className="block text-sm font-medium">New Password</label>

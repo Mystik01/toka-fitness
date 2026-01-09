@@ -996,6 +996,45 @@ def get_staff_users():
         logger.error(f"❌ Error fetching staff users: {str(e)}")
         return jsonify({"error": f"Failed to fetch staff users: {str(e)}"}), 500
 
+@app.route("/api/admin/users", methods=["GET"])
+def admin_list_users():
+    """List all user emails for admin/staff. Uses service role on backend only."""
+    try:
+        token = request.cookies.get("sb-access-token")
+        if not token:
+            return jsonify({"error": "Not authenticated"}), 401
+        user = supabase.auth.get_user(token)
+        if not user or not user.user:
+            return jsonify({"error": "Invalid token"}), 401
+        role = get_user_role(user.user.id)
+        if role not in ["staff", "admin"]:
+            return jsonify({"error": "Forbidden"}), 403
+
+        try:
+            # Use admin list users (requires service role key configured)
+            resp = supabase.auth.admin.list_users()
+            users_list = resp if isinstance(resp, list) else getattr(resp, 'users', [])
+            result = []
+            for u in users_list:
+                email = getattr(u, 'email', None)
+                if not email:
+                    continue
+                result.append({
+                    "id": getattr(u, 'id', None),
+                    "email": email,
+                    "createdAt": getattr(u, 'created_at', None),
+                })
+            return jsonify({"users": result}), 200
+        except Exception as admin_err:
+            if not IS_VERCEL:
+                logger.warning(f"Admin list_users failed: {str(admin_err)}")
+            # Graceful fallback: empty list so UI still works for manual entry
+            return jsonify({"users": []}), 200
+
+    except Exception as e:
+        logger.error(f"❌ Error listing users: {str(e)}")
+        return jsonify({"error": "Failed to list users"}), 500
+
 @app.route("/api/classes", methods=["GET"])
 def get_classes():
     """Fetch all classes with live enrollment counts"""
@@ -1493,28 +1532,46 @@ def get_my_enrollments():
 
 @app.route("/api/classes/<class_id>/enrollments", methods=["GET"])
 def get_class_enrollments(class_id):
-    """Get roster for a class (user ids + optional display info)"""
+    """Get roster for a class (user ids + display names). Respects privacy: private profiles only show name to staff."""
     try:
+        # Check if current user is staff
+        token = request.cookies.get("sb-access-token")
+        current_user_id = None
+        is_staff = False
+        if token:
+            user = supabase.auth.get_user(token)
+            if user and user.user:
+                current_user_id = user.user.id
+                is_staff = get_user_role(current_user_id) in ["staff", "admin"]
+        
         # Fetch enrollments for class
         resp = supabase.table("class_enrollments").select("user_id, enrolled_at").eq("class_id", class_id).order("enrolled_at", desc=False).execute()
         enrollments = resp.data if hasattr(resp, 'data') else []
 
-        # Try to enrich with user details if service role is available
+        # Extract user IDs and fetch profiles
+        user_ids = [row.get("user_id") for row in enrollments if row.get("user_id")]
+        profiles = {}
+        if user_ids:
+            prof_resp = supabase.table("profiles").select("id, display_name, is_private").in_("id", user_ids).execute()
+            prof_data = prof_resp.data if hasattr(prof_resp, 'data') else []
+            for prof in prof_data:
+                profiles[prof.get("id")] = prof
+
+        # Enrich with user details, respecting privacy
         detailed = []
         for row in enrollments:
-            user_info = {"user_id": row.get("user_id"), "enrolled_at": row.get("enrolled_at")}
-            try:
-                admin_user = supabase.auth.admin.get_user_by_id(row.get("user_id"))
-                if admin_user and getattr(admin_user, 'user', None):
-                    u = admin_user.user
-                    meta = getattr(u, 'user_metadata', {}) or {}
-                    display_name = meta.get("display_name") or (f"{meta.get('first_name','').strip()} {meta.get('last_name','').strip()}".strip())
-                    user_info.update({
-                        "email": getattr(u, 'email', None),
-                        "display_name": display_name or (getattr(u, 'email', None) or "User"),
-                    })
-            except Exception:
-                pass
+            user_id = row.get("user_id")
+            user_info = {"user_id": user_id, "enrolled_at": row.get("enrolled_at")}
+            
+            profile = profiles.get(user_id, {})
+            is_private = profile.get("is_private", False)
+            display_name = profile.get("display_name")
+            
+            # Only show display_name if public or if current user is staff
+            if is_private and not is_staff:
+                display_name = None
+            
+            user_info["display_name"] = display_name or "User"
             detailed.append(user_info)
 
         return jsonify({"enrollments": detailed}), 200

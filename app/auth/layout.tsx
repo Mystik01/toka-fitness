@@ -19,13 +19,7 @@ export default function AuthLayout({
 
     return (
         <div className="h-screen overflow-hidden bg-white flex relative">
-            {/* Logout button - only show on non-login pages */}
-            <button
-                onClick={handleLogout}
-                className="absolute top-6 right-6 z-50 px-4 py-2 text-sm font-medium text-gray-700 bg-white/80 backdrop-blur-sm border border-gray-300 rounded-lg hover:bg-gray-50 transition-all duration-200 shadow-sm"
-            >
-                Logout
-            </button>
+            {/* Logout button removed as it is not needed on auth pages */}
 
             <div className="w-full flex flex-col md:flex-row">
                 {/* Left side - Branding/Info */}
