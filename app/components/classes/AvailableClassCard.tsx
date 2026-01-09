@@ -1,21 +1,60 @@
 "use client";
 
-import { FitnessClass } from '@/app/lib/types/class';
-import { Calendar, Clock, MapPin, Users, Star, TrendingUp } from 'lucide-react';
+import { FitnessClass, Difficulty } from '@/app/lib/types/class';
+import { Calendar, Clock, MapPin, Users, Star, TrendingUp, Share } from 'lucide-react';
+
+// Database class type (from API)
+interface DatabaseClass {
+  id: string;
+  class_name: string;
+  class_type: string;
+  instructor: string;
+  start: string;
+  end: string;
+  location: string;
+  max_participants: number;
+  participants?: string[];
+  description?: string;
+  created_at: string;
+}
 
 interface AvailableClassCardProps {
-  fitnessClass: FitnessClass;
+  fitnessClass: FitnessClass | DatabaseClass;
   onJoin?: (classId: string) => void;
   onWaitlist?: (classId: string) => void;
   onViewDetails?: (classId: string) => void;
+  onShare?: (classId: string) => void;
 }
 
 export default function AvailableClassCard({ 
   fitnessClass, 
   onJoin, 
   onWaitlist,
-  onViewDetails 
+  onViewDetails,
+  onShare,
 }: AvailableClassCardProps) {
+  // Normalize data from either type
+  const isDbClass = 'class_name' in fitnessClass;
+  
+  const id = String(fitnessClass.id);
+  const name = isDbClass ? fitnessClass.class_name : fitnessClass.name;
+  const type = isDbClass ? fitnessClass.class_type : fitnessClass.type;
+  const instructor = isDbClass
+    ? (fitnessClass as any).instructor_name || fitnessClass.instructor
+    : fitnessClass.instructor;
+  const location = fitnessClass.location;
+  const startTime = isDbClass ? new Date(fitnessClass.start) : new Date(fitnessClass.startTime);
+  const capacity = isDbClass ? fitnessClass.max_participants : fitnessClass.capacity;
+  // Supabase may return participants as null if column is missing or not set; default to 0
+  const enrolled = isDbClass ? (fitnessClass.participants ? fitnessClass.participants.length : 0) : fitnessClass.enrolled;
+  const difficulty: Difficulty = isDbClass ? 'intermediate' : fitnessClass.difficulty;
+  const rating = isDbClass ? undefined : fitnessClass.rating;
+  const reviewCount = isDbClass ? undefined : fitnessClass.reviewCount;
+  const instructorImage = isDbClass ? '👤' : fitnessClass.instructorImage;
+  const status = isDbClass 
+    ? (enrolled >= capacity ? 'full' : 'available') 
+    : fitnessClass.status;
+
   const formatTime = (date: Date) => {
     return new Date(date).toLocaleTimeString('en-US', { 
       hour: 'numeric', 
@@ -58,18 +97,18 @@ export default function AvailableClassCard({
     return emojis[type] || '🏃';
   };
 
-  const getDifficultyColor = (difficulty: string) => {
+  const getDifficultyColor = (diff: string) => {
     const colors: Record<string, string> = {
       beginner: 'bg-green-100 text-green-800',
       intermediate: 'bg-yellow-100 text-yellow-800',
       advanced: 'bg-red-100 text-red-800',
     };
-    return colors[difficulty] || 'bg-gray-100 text-gray-800';
+    return colors[diff] || 'bg-gray-100 text-gray-800';
   };
 
-  const spotsRemaining = fitnessClass.capacity - fitnessClass.enrolled;
-  const spotsPercentage = (fitnessClass.enrolled / fitnessClass.capacity) * 100;
-  const isFull = fitnessClass.status === 'full';
+  const spotsRemaining = capacity - enrolled;
+  const spotsPercentage = (enrolled / capacity) * 100;
+  const isFull = status === 'full';
   const isFillingFast = spotsPercentage > 75 && !isFull;
 
   return (
@@ -84,44 +123,44 @@ export default function AvailableClassCard({
 
       {/* Header */}
       <div className="flex items-start justify-between mb-3">
-        <span className="text-2xl">{getTypeEmoji(fitnessClass.type)}</span>
-        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getDifficultyColor(fitnessClass.difficulty)}`}>
-          {fitnessClass.difficulty}
+        <span className="text-2xl">{getTypeEmoji(type)}</span>
+        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getDifficultyColor(difficulty)}`}>
+          {difficulty}
         </span>
       </div>
 
       {/* Class Name */}
       <h3 className="text-lg font-semibold text-gray-900 mb-2">
-        {fitnessClass.name}
+        {name}
       </h3>
 
       {/* Time & Date */}
       <div className="space-y-2 mb-3">
         <div className="flex items-center text-sm text-gray-600">
           <Calendar className="w-4 h-4 mr-2" />
-          <span className="font-medium">{formatDate(fitnessClass.startTime)}</span>
+          <span className="font-medium">{formatDate(startTime)}</span>
           <span className="mx-1">•</span>
           <Clock className="w-4 h-4 mr-1" />
-          <span>{formatTime(fitnessClass.startTime)}</span>
+          <span>{formatTime(startTime)}</span>
         </div>
         
         <div className="flex items-center text-sm text-gray-600">
           <MapPin className="w-4 h-4 mr-2" />
-          <span>{fitnessClass.location}</span>
+          <span>{location}</span>
         </div>
       </div>
 
       {/* Instructor & Rating */}
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center">
-          <span className="text-xl mr-2">{fitnessClass.instructorImage}</span>
-          <span className="text-sm text-gray-700">{fitnessClass.instructor}</span>
+          <span className="text-xl mr-2">{instructorImage}</span>
+          <span className="text-sm text-gray-700">{instructor}</span>
         </div>
-        {fitnessClass.rating && (
+        {rating && (
           <div className="flex items-center text-sm">
             <Star className="w-4 h-4 text-yellow-400 fill-yellow-400 mr-1" />
-            <span className="font-medium">{fitnessClass.rating}</span>
-            <span className="text-gray-500 ml-1">({fitnessClass.reviewCount})</span>
+            <span className="font-medium">{rating}</span>
+            <span className="text-gray-500 ml-1">({reviewCount})</span>
           </div>
         )}
       </div>
@@ -134,7 +173,7 @@ export default function AvailableClassCard({
             {isFull ? 'Full' : `${spotsRemaining} spots left`}
           </span>
           <span className="text-gray-500">
-            {fitnessClass.enrolled}/{fitnessClass.capacity}
+            {enrolled}/{capacity}
           </span>
         </div>
         <div className="w-full bg-gray-200 rounded-full h-2">
@@ -151,16 +190,23 @@ export default function AvailableClassCard({
 
       {/* Actions */}
       <div className="flex gap-2">
+        <button
+          onClick={() => onShare?.(id)}
+          className="px-3 py-2 text-sm font-medium text-gray-600 bg-gray-100 rounded-md hover:bg-gray-200 transition-colors"
+          title="Copy share link"
+        >
+          <Share className="w-4 h-4" />
+        </button>
         {isFull ? (
           <>
             <button
-              onClick={() => onWaitlist?.(fitnessClass.id)}
+              onClick={() => onWaitlist?.(id)}
               className="flex-1 px-4 py-2 text-sm font-medium text-white bg-gray-600 rounded-md hover:bg-gray-700 transition-colors"
             >
               Join Waitlist
             </button>
             <button
-              onClick={() => onViewDetails?.(fitnessClass.id)}
+              onClick={() => onViewDetails?.(id)}
               className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200 transition-colors"
             >
               Details
@@ -169,13 +215,13 @@ export default function AvailableClassCard({
         ) : (
           <>
             <button
-              onClick={() => onJoin?.(fitnessClass.id)}
+              onClick={() => onJoin?.(id)}
               className="flex-1 px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-md hover:bg-indigo-700 transition-colors"
             >
               Join Class
             </button>
             <button
-              onClick={() => onViewDetails?.(fitnessClass.id)}
+              onClick={() => onViewDetails?.(id)}
               className="px-4 py-2 text-sm font-medium text-indigo-600 bg-indigo-50 rounded-md hover:bg-indigo-100 transition-colors"
             >
               Details

@@ -5,6 +5,7 @@ import os
 import sys
 from supabase import create_client, Client
 from dotenv import load_dotenv
+from datetime import datetime, timezone
 
 # Load .env file only in local development
 load_dotenv()
@@ -13,7 +14,9 @@ app = Flask(__name__)
 
 # Get environment variables with validation
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
-SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
+# Prefer service role key (bypasses RLS when needed); fall back to SUPABASE_KEY if not provided
+SUPABASE_SERVICE_ROLE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+SUPABASE_KEY = SUPABASE_SERVICE_ROLE_KEY or os.environ.get("SUPABASE_KEY")
 
 # Validate required environment variables
 if not SUPABASE_URL or not SUPABASE_KEY:
@@ -26,15 +29,19 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # Configure CORS for both development and production
-cors_origins = ["http://localhost:3001"]  # Development
+cors_origins = [
+    "http://localhost:3001",
+    "http://localhost:3000",
+    "http://127.0.0.1:3001",
+    "http://127.0.0.1:3000",
+]
 if os.environ.get('VERCEL_URL'):
     cors_origins.append(f"https://{os.environ.get('VERCEL_URL')}")
 if os.environ.get('VERCEL_PROJECT_PRODUCTION_URL'):
     cors_origins.append(f"https://{os.environ.get('VERCEL_PROJECT_PRODUCTION_URL')}")
-# Add your custom domain if you have one
 cors_origins.extend([
     "https://*.vercel.app",
-    "https://*.ommix.xyz"  # Replace with your actual domain if you have one
+    "https://*.ommix.xyz"
 ])
 
 CORS(
@@ -97,12 +104,31 @@ def check_supabase_connection():
 # Check connection on startup
 check_supabase_connection()
 
+def get_authenticated_client(token: str) -> Client:
+    """Create a Supabase client with user authentication (respects RLS policies)"""
+    client = create_client(SUPABASE_URL, SUPABASE_KEY)
+    # Set the auth token on the postgrest client for RLS context
+    client.postgrest.auth(token)
+    return client
+
+def get_user_role(user_id: str) -> str:
+    """Get user role from the secure user_roles table"""
+    try:
+        response = supabase.table("user_roles").select("role").eq("user_id", user_id).single().execute()
+        if hasattr(response, 'data') and response.data:
+            return response.data.get("role", "user")
+        return "user"
+    except Exception as e:
+        if not IS_VERCEL:
+            logger.warning(f"Could not fetch role for user {user_id}: {str(e)}")
+        return "user"
+
 # Middleware to detect browser requests and redirect
 @app.before_request
 def redirect_browser_requests():
-    """Redirect browser requests to frontend, except for /api/python test endpoint"""
-    # Skip for /api/python test endpoint
-    if request.path == '/api/python':
+    """Redirect browser requests to frontend, except for /api/ endpoints"""
+    # Skip for any /api/ endpoints (these are API calls, not browser visits)
+    if request.path.startswith('/api/'):
         return None
     
     # Check if request is from a browser (has Accept header with text/html)
@@ -200,6 +226,7 @@ def login():
 
         if response.user and response.session:
             access_token = response.session.access_token
+            refresh_token = response.session.refresh_token
             
             # ℹ️ Only log in development
             if not IS_VERCEL:
@@ -215,7 +242,7 @@ def login():
                 }
             }), 200)
             
-            # ✅ Set cookie for session
+            # ✅ Set cookies for session
             flask_response.set_cookie(
                 "sb-access-token",
                 access_token,
@@ -223,6 +250,14 @@ def login():
                 secure=is_production,
                 samesite="Lax",
                 max_age=3600
+            )
+            flask_response.set_cookie(
+                "sb-refresh-token",
+                refresh_token,
+                httponly=True,
+                secure=is_production,
+                samesite="Lax",
+                max_age=604800  # 7 days
             )
             return flask_response
         else:
@@ -395,27 +430,146 @@ def validate_session():
         logger.error(f"❌ Session validation error: {str(e)}")
         return jsonify({"error": str(e)}), 500
     
-@app.route("/api/me", methods=["GET"])
+@app.route("/api/me", methods=["GET", "PATCH"])
 def get_me():
+    token = request.cookies.get("sb-access-token")
+    refresh_token = request.cookies.get("sb-refresh-token")
+    
+    if not token:
+        return jsonify({"error": "Not logged in"}), 401
+
     try:
-        token = request.cookies.get("sb-access-token")
-        if not token:
-            return jsonify({"error": "Not logged in"}), 401
-
         user = supabase.auth.get_user(token)
+        
+        if not user or not user.user:
+            return jsonify({"error": "Invalid session"}), 401
 
-        if user and user.user:
+        # GET - Return user data
+        if request.method == "GET":
+            metadata = user.user.user_metadata or {}
+            # Build display name from metadata
+            display_name = metadata.get("display_name")
+            if not display_name and metadata.get("first_name"):
+                display_name = f"{metadata.get('first_name', '')} {metadata.get('last_name', '')}".strip()
+            
+            # Get role from secure database table instead of user_metadata
+            role = get_user_role(user.user.id)
+            
             return jsonify({
                 "id": user.user.id,
                 "email": user.user.email,
                 "created_at": user.user.created_at,
-                "last_sign_in_at": user.user.last_sign_in_at
+                "last_sign_in_at": user.user.last_sign_in_at,
+                "displayName": display_name,
+                "role": role,
+                "role_source": "user_roles_table",
+                "user_metadata": metadata
             }), 200
-        else:
-            return jsonify({"error": "Invalid session"}), 401
+
+        # PATCH - Update user data
+        if request.method == "PATCH":
+            data = request.get_json()
+            if not data:
+                return jsonify({"error": "No data provided"}), 400
+
+            # Prevent users from updating their own role via this endpoint
+            if "role" in data:
+                return jsonify({"error": "Cannot update role via this endpoint"}), 403
+
+            current_metadata = user.user.user_metadata or {}
+            updated_metadata = {**current_metadata}
+
+            # Handle display name update (can be first/last name or direct display_name)
+            if "first_name" in data or "last_name" in data:
+                first_name = data.get("first_name", current_metadata.get("first_name", "")).strip()
+                last_name = data.get("last_name", current_metadata.get("last_name", "")).strip()
+                updated_metadata["first_name"] = first_name
+                updated_metadata["last_name"] = last_name
+                updated_metadata["display_name"] = f"{first_name} {last_name}".strip()
+            elif "display_name" in data:
+                updated_metadata["display_name"] = data["display_name"].strip()
+
+            supabase.auth.set_session(token, refresh_token or "")
+            result = supabase.auth.update_user({"data": updated_metadata})
+
+            if not IS_VERCEL:
+                logger.info(f"✅ Updated user profile for {user.user.email}")
+
+            # Return updated user data
+            display_name = updated_metadata.get("display_name")
+            if not display_name and updated_metadata.get("first_name"):
+                display_name = f"{updated_metadata.get('first_name', '')} {updated_metadata.get('last_name', '')}".strip()
+
+            # Get role from secure database table
+            role = get_user_role(user.user.id)
+
+            return jsonify({
+                "id": user.user.id,
+                "email": user.user.email,
+                "created_at": user.user.created_at,
+                "last_sign_in_at": user.user.last_sign_in_at,
+                "displayName": display_name,
+                "role": role,
+                "user_metadata": updated_metadata
+            }), 200
             
     except Exception as e:
-        logger.error(f"❌ Get user error: {str(e)}")
+        logger.error(f"❌ User API error: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/api/onboarding", methods=["POST"])
+def onboarding():
+    """Update user's display name during onboarding"""
+    try:
+        token = request.cookies.get("sb-access-token")
+        refresh_token = request.cookies.get("sb-refresh-token")
+        if not token:
+            return jsonify({"error": "Not logged in"}), 401
+
+        data = request.get_json()
+        first_name = data.get("first_name", "").strip()
+        last_name = data.get("last_name", "").strip()
+
+        if not first_name or not last_name:
+            return jsonify({"error": "First name and last name are required"}), 400
+
+        # Get current user to verify token is valid
+        user = supabase.auth.get_user(token)
+        if not user or not user.user:
+            return jsonify({"error": "Invalid session"}), 401
+
+        # Update user metadata with display name
+        display_name = f"{first_name} {last_name}"
+        current_metadata = user.user.user_metadata or {}
+        
+        # Preserve existing metadata (like role) and add name fields
+        updated_metadata = {
+            **current_metadata,
+            "first_name": first_name,
+            "last_name": last_name,
+            "display_name": display_name,
+        }
+
+        # Set the session first so update_user works
+        supabase.auth.set_session(token, refresh_token or "")
+        
+        # Now update the user metadata
+        result = supabase.auth.update_user({"data": updated_metadata})
+
+        if not IS_VERCEL:
+            logger.info(f"✅ Updated user profile: {display_name}")
+
+        return jsonify({
+            "message": "Profile updated successfully",
+            "user": {
+                "id": user.user.id,
+                "email": user.user.email,
+                "display_name": display_name,
+            }
+        }), 200
+
+    except Exception as e:
+        logger.error(f"❌ Onboarding error: {str(e)}")
         return jsonify({"error": str(e)}), 500
     
 @app.route("/api/logout", methods=["POST"])
@@ -563,7 +717,7 @@ def verify_callback():
                 }
             }), 200)
             
-            # Set cookie for session
+            # Set cookies for session
             flask_response.set_cookie(
                 "sb-access-token",
                 response.session.access_token,
@@ -571,6 +725,14 @@ def verify_callback():
                 secure=is_production,
                 samesite="Lax",
                 max_age=3600
+            )
+            flask_response.set_cookie(
+                "sb-refresh-token",
+                response.session.refresh_token,
+                httponly=True,
+                secure=is_production,
+                samesite="Lax",
+                max_age=604800  # 7 days
             )
             return flask_response
         else:
@@ -646,6 +808,810 @@ def update_password():
     except Exception as e:
         logger.error(f"❌ Update password error: {str(e)}")
         return jsonify({"error": "Failed to update password. Please try again."}), 500
+
+@app.route('/api/auth/delete-account', methods=['POST', 'DELETE'])
+def delete_account():
+    """Handle account deletion"""
+    try:
+        token = request.cookies.get("sb-access-token")
+        if not token:
+            return jsonify({"error": "Not logged in"}), 401
+
+        user = supabase.auth.get_user(token)
+
+        if user and user.user:
+            delete_response = supabase.auth.admin.delete_user(user.user.id)
+            if delete_response:
+                response = make_response(jsonify({"message": "Account deleted successfully"}), 200)
+                response.set_cookie(
+                    "sb-access-token", 
+                    "", 
+                    expires=0, 
+                    httponly=True, 
+                    samesite="Lax", 
+                    secure=is_production
+                )
+                if not IS_VERCEL:
+                    logger.info(f"✅ Account deleted for user: {user.user.email}")
+                return response
+            else:
+                return jsonify({"error": "Failed to delete account"}), 400
+        else:
+            return jsonify({"error": "Invalid session"}), 401
+            
+    except Exception as e:
+        logger.error(f"❌ Delete account error: {str(e)}")
+        return jsonify({"error": "Failed to delete account. Please try again."}), 500
+
+@app.route("/api/change-password", methods=["POST"])
+def change_password_logged_in():
+    """Change password for a logged-in user using current session"""
+    try:
+        token = request.cookies.get("sb-access-token")
+        refresh_token = request.cookies.get("sb-refresh-token")
+        if not token:
+            return jsonify({"error": "Not authenticated"}), 401
+
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "No data provided"}), 400
+
+        new_password = data.get("new_password")
+        if not new_password or len(new_password) < 6:
+            return jsonify({"error": "Password must be at least 6 characters"}), 400
+
+        # Refresh the session to ensure validity
+        supabase.auth.set_session(token, refresh_token or "")
+
+        update_response = supabase.auth.update_user({
+            "password": new_password
+        })
+
+        if update_response.user:
+            if not IS_VERCEL:
+                logger.info(f"✅ Password updated for user {update_response.user.id}")
+            return jsonify({"message": "Password updated successfully"}), 200
+        else:
+            return jsonify({"error": "Failed to update password"}), 400
+
+    except Exception as e:
+        logger.error(f"❌ Change password error: {str(e)}")
+        return jsonify({"error": "Server error updating password"}), 500
+
+@app.route("/api/change-email", methods=["POST"])
+def change_email_logged_in():
+    """Initiate email change for a logged-in user (Supabase will send confirmation to new email)"""
+    try:
+        token = request.cookies.get("sb-access-token")
+        refresh_token = request.cookies.get("sb-refresh-token")
+        if not token:
+            return jsonify({"error": "Not authenticated"}), 401
+
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "No data provided"}), 400
+
+        new_email = data.get("new_email")
+        if not new_email:
+            return jsonify({"error": "New email is required"}), 400
+
+        # Basic email format check (same as reset)
+        import re
+        email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+        if not re.match(email_pattern, new_email):
+            return jsonify({"error": "Invalid email format"}), 400
+
+        # Ensure session is valid
+        supabase.auth.set_session(token, refresh_token or "")
+
+        update_response = supabase.auth.update_user({
+            "email": new_email,
+            "options": {"email_redirect_to": f"{get_frontend_url()}"}
+        })
+
+        if update_response.user:
+            if not IS_VERCEL:
+                logger.info(f"✅ Email change initiated for user {update_response.user.id} -> {new_email}")
+            return jsonify({
+                "message": "Email change initiated. Please verify the new email.",
+                "pending_email": new_email
+            }), 200
+        else:
+            return jsonify({"error": "Failed to initiate email change"}), 400
+
+    except Exception as e:
+        error_message = str(e).lower()
+        if 'already exists' in error_message or 'duplicate' in error_message:
+            return jsonify({"error": "Email already in use"}), 409
+        logger.error(f"❌ Change email error: {str(e)}")
+        return jsonify({"error": "Server error updating email"}), 500
+
+@app.route("/api/staff-users", methods=["GET"])
+def get_staff_users():
+    """Fetch all users with staff or admin role"""
+    try:
+        # Query auth.users table directly using RPC or raw SQL
+        # Since we can't use admin API without service role key,
+        # we'll use a PostgreSQL function or direct query
+        
+        # Alternative: Query users via RPC function
+        # First, let's try using the admin list_users with proper error handling
+        try:
+            response = supabase.auth.admin.list_users()
+            users_list = response if isinstance(response, list) else getattr(response, 'users', [])
+
+            # Build a quick role map from user_roles table
+            role_map: dict[str, str] = {}
+            try:
+                roles_resp = supabase.table("user_roles").select("user_id, role").execute()
+                for r in getattr(roles_resp, 'data', []) or []:
+                    role_map[r.get("user_id")] = r.get("role", "user")
+            except Exception:
+                pass
+
+            staff_users = []
+            for u in users_list:
+                # Prefer secure role from user_roles; fallback to metadata
+                u_role = role_map.get(getattr(u, 'id', None)) or (getattr(u, 'user_metadata', {}) or {}).get("role", "user")
+                if u_role in ["staff", "admin"]:
+                    meta = getattr(u, 'user_metadata', {}) or {}
+                    display_name = meta.get("display_name")
+                    first_name = meta.get("first_name")
+                    last_name = meta.get("last_name")
+                    if display_name:
+                        name = display_name
+                    elif first_name and last_name:
+                        name = f"{first_name} {last_name}"
+                    elif first_name:
+                        name = first_name
+                    elif getattr(u, 'email', None):
+                        email = getattr(u, 'email', None)
+                        name = email.split('@')[0] if email else "User"
+                    else:
+                        name = "User"
+                    staff_users.append({
+                        "id": getattr(u, 'id', None),
+                        "email": getattr(u, 'email', None),
+                        "name": name,
+                        "role": u_role,
+                    })
+
+            if not IS_VERCEL:
+                logger.info(f"✅ Fetched {len(staff_users)} staff users")
+            return jsonify({"staff_users": staff_users}), 200
+            
+        except Exception as admin_error:
+            # Admin API failed, try alternative method using PostgreSQL RPC
+            if not IS_VERCEL:
+                logger.warning(f"Admin API failed, using alternative method: {str(admin_error)}")
+            
+            # For now, return empty list with a note
+            # In production, you'd create a PostgreSQL function to query auth.users
+            return jsonify({
+                "staff_users": [],
+                "note": "Admin API requires service role key. Please add staff users manually or use service role key."
+            }), 200
+        
+    except Exception as e:
+        logger.error(f"❌ Error fetching staff users: {str(e)}")
+        return jsonify({"error": f"Failed to fetch staff users: {str(e)}"}), 500
+
+@app.route("/api/admin/users", methods=["GET"])
+def admin_list_users():
+    """List all user emails for admin/staff. Uses service role on backend only."""
+    try:
+        token = request.cookies.get("sb-access-token")
+        if not token:
+            return jsonify({"error": "Not authenticated"}), 401
+        user = supabase.auth.get_user(token)
+        if not user or not user.user:
+            return jsonify({"error": "Invalid token"}), 401
+        role = get_user_role(user.user.id)
+        if role not in ["staff", "admin"]:
+            return jsonify({"error": "Forbidden"}), 403
+
+        try:
+            # Use admin list users (requires service role key configured)
+            resp = supabase.auth.admin.list_users()
+            users_list = resp if isinstance(resp, list) else getattr(resp, 'users', [])
+            result = []
+            for u in users_list:
+                email = getattr(u, 'email', None)
+                if not email:
+                    continue
+                result.append({
+                    "id": getattr(u, 'id', None),
+                    "email": email,
+                    "createdAt": getattr(u, 'created_at', None),
+                })
+            return jsonify({"users": result}), 200
+        except Exception as admin_err:
+            if not IS_VERCEL:
+                logger.warning(f"Admin list_users failed: {str(admin_err)}")
+            # Graceful fallback: empty list so UI still works for manual entry
+            return jsonify({"users": []}), 200
+
+    except Exception as e:
+        logger.error(f"❌ Error listing users: {str(e)}")
+        return jsonify({"error": "Failed to list users"}), 500
+
+@app.route("/api/classes", methods=["GET"])
+def get_classes():
+    """Fetch all classes with live enrollment counts"""
+    try:
+        response = supabase.table("classes").select("*").order("start", desc=False).execute()
+        classes = response.data if hasattr(response, 'data') else []
+
+        # Attach enrollment counts (source of truth: class_enrollments)
+        for cls in classes:
+            try:
+                count_resp = supabase.table("class_enrollments").select("id", count="exact").eq("class_id", cls.get("id")).execute()
+                cls["enrolled_count"] = count_resp.count if hasattr(count_resp, "count") else 0
+            except Exception:
+                cls["enrolled_count"] = 0
+
+        if not IS_VERCEL:
+            logger.info(f"✅ Fetched {len(classes)} classes with enrollment counts")
+        
+        return jsonify({"classes": classes}), 200
+        
+    except Exception as e:
+        logger.error(f"❌ Error fetching classes: {str(e)}")
+        return jsonify({"error": "Failed to fetch classes"}), 500
+
+# Profiles API
+@app.route("/api/profiles", methods=["GET"])
+def list_profiles():
+    """Return public-safe profiles for provided ids. Respects privacy (is_private)."""
+    try:
+        ids_param = request.args.get("ids", "").strip()
+        if not ids_param:
+            return jsonify({"profiles": []}), 200
+        ids = [i for i in {s.strip() for s in ids_param.split(",")} if i]
+
+        # Current user (to allow seeing their own private profile)
+        current_id = None
+        token = request.cookies.get("sb-access-token")
+        if token:
+            try:
+                u = supabase.auth.get_user(token)
+                if u and u.user:
+                    current_id = u.user.id
+            except Exception:
+                pass
+
+        resp = supabase.table("profiles").select(
+            "id, display_name, first_name, last_name, avatar_url, is_private"
+        ).in_("id", ids).execute()
+        rows = resp.data if hasattr(resp, 'data') else []
+
+        result = []
+        for r in rows:
+            if r.get("is_private") and r.get("id") != current_id:
+                # Skip private profiles for others
+                continue
+            name = r.get("display_name") or (f"{(r.get('first_name') or '').strip()} {(r.get('last_name') or '').strip()}".strip()) or None
+            result.append({
+                "id": r.get("id"),
+                "display_name": name,
+                "avatar_url": r.get("avatar_url"),
+                "is_private": r.get("is_private", False),
+            })
+        return jsonify({"profiles": result}), 200
+    except Exception as e:
+        logger.error(f"❌ Error listing profiles: {str(e)}")
+        return jsonify({"error": "Failed to fetch profiles"}), 500
+
+@app.route("/api/profiles/<user_id>", methods=["GET"])
+def get_profile(user_id):
+    """Return a single public-safe profile, respecting privacy."""
+    try:
+        current_id = None
+        token = request.cookies.get("sb-access-token")
+        if token:
+            try:
+                u = supabase.auth.get_user(token)
+                if u and u.user:
+                    current_id = u.user.id
+            except Exception:
+                pass
+
+        resp = supabase.table("profiles").select(
+            "id, display_name, first_name, last_name, avatar_url, is_private"
+        ).eq("id", user_id).single().execute()
+        r = resp.data if hasattr(resp, 'data') else None
+        if not r:
+            return jsonify({"error": "Profile not found"}), 404
+
+        if r.get("is_private") and r.get("id") != current_id:
+            return jsonify({"error": "Profile is private"}), 403
+
+        name = r.get("display_name") or (f"{(r.get('first_name') or '').strip()} {(r.get('last_name') or '').strip()}".strip()) or None
+        return jsonify({
+            "id": r.get("id"),
+            "display_name": name,
+            "avatar_url": r.get("avatar_url"),
+            "is_private": r.get("is_private", False),
+        }), 200
+    except Exception as e:
+        logger.error(f"❌ Error fetching profile: {str(e)}")
+        return jsonify({"error": "Failed to fetch profile"}), 500
+
+@app.route("/api/me/profile", methods=["PATCH"])
+def update_my_profile():
+    """Update current user's profile fields. Only avatar_url, bio, username, is_private allowed here.
+    For name fields, use /api/me PATCH with user_metadata (auth endpoint)."""
+    try:
+        token = request.cookies.get("sb-access-token")
+        refresh_token = request.cookies.get("sb-refresh-token")
+        if not token:
+            return jsonify({"error": "Not authenticated"}), 401
+
+        user = supabase.auth.get_user(token)
+        if not user or not user.user:
+            return jsonify({"error": "Invalid token"}), 401
+
+        user_id = user.user.id
+        data = request.get_json() or {}
+        
+        # Only allow safe, editable fields (names must go through auth endpoint)
+        allowed = {k: v for k, v in data.items() if k in [
+            "avatar_url", "bio", "username", "is_private"
+        ]}
+        if not allowed:
+            return jsonify({"error": "No valid fields. Note: use PATCH /api/me for name changes."}), 400
+
+        # Ensure profile exists
+        try:
+            supabase.table("profiles").insert({"id": user_id}).execute()
+        except Exception:
+            pass
+
+        updated = supabase.table("profiles").update(allowed).eq("id", user_id).execute()
+        row = (updated.data or [{}])[0] if hasattr(updated, 'data') else {}
+        return jsonify({"profile": row}), 200
+    except Exception as e:
+        logger.error(f"❌ Error updating profile: {str(e)}")
+        return jsonify({"error": "Failed to update profile"}), 500
+
+@app.route("/api/profiles/<user_id>/overview", methods=["GET"])
+def get_profile_overview(user_id):
+    """Return a user's profile overview: enrolled classes (upcoming/past), stats, and hosted classes if instructor.
+    Requires authentication. Respects profile privacy (is_private)."""
+    try:
+        # Require login
+        token = request.cookies.get("sb-access-token")
+        if not token:
+            return jsonify({"error": "Not authenticated"}), 401
+        viewer = supabase.auth.get_user(token)
+        if not viewer or not viewer.user:
+            return jsonify({"error": "Invalid token"}), 401
+        viewer_id = viewer.user.id
+
+        # Fetch profile with privacy flag
+        prof_resp = supabase.table("profiles").select(
+            "id, display_name, first_name, last_name, avatar_url, is_private"
+        ).eq("id", user_id).single().execute()
+        profile = prof_resp.data if hasattr(prof_resp, 'data') else None
+        if not profile:
+            return jsonify({"error": "Profile not found"}), 404
+        if profile.get("is_private") and user_id != viewer_id:
+            return jsonify({"error": "Profile is private"}), 403
+
+        name = profile.get("display_name") or (f"{(profile.get('first_name') or '').strip()} {(profile.get('last_name') or '').strip()}".strip()) or None
+
+        # Enrollments with class join
+        enr_resp = supabase.table("class_enrollments").select(
+            "enrolled_at, classes(*)"
+        ).eq("user_id", user_id).execute()
+        enrollments = enr_resp.data if hasattr(enr_resp, 'data') else []
+
+        # Normalize class rows and compute stats
+        def parse_dt(s):
+            if not s:
+                return None
+            try:
+                return datetime.fromisoformat(s.replace('Z', '+00:00'))
+            except Exception:
+                return None
+
+        classes_joined = []
+        type_counts = {}
+        total_seconds = 0
+        now = datetime.now(timezone.utc)
+        for row in enrollments:
+            c = row.get("classes") or {}
+            if not c:
+                continue
+            start = parse_dt(c.get("start"))
+            end = parse_dt(c.get("end"))
+            if start and end and end > start:
+                total_seconds += (end - start).total_seconds()
+            ct = c.get("class_type")
+            if ct:
+                type_counts[ct] = type_counts.get(ct, 0) + 1
+            classes_joined.append(c)
+
+        upcoming_enrolled = [c for c in classes_joined if parse_dt(c.get("start")) and parse_dt(c.get("start")) > now]
+        past_enrolled = [c for c in classes_joined if parse_dt(c.get("start")) and parse_dt(c.get("start")) <= now]
+
+        favorite_type = None
+        if type_counts:
+            favorite_type = max(type_counts.items(), key=lambda kv: kv[1])[0]
+        total_hours = round(total_seconds / 3600, 1)
+
+        # Hosted classes if instructor/admin
+        user_role = get_user_role(user_id)
+        hosted_upcoming = []
+        hosted_past = []
+        try:
+            if user_role in ["staff", "admin"]:
+                host_resp = supabase.table("classes").select("*").eq("instructor", user_id).order("start", desc=False).execute()
+                host_classes = host_resp.data if hasattr(host_resp, 'data') else []
+                for c in host_classes:
+                    if parse_dt(c.get("start")) and parse_dt(c.get("start")) > now:
+                        hosted_upcoming.append(c)
+                    else:
+                        hosted_past.append(c)
+        except Exception:
+            pass
+
+        return jsonify({
+            "profile": {
+                "id": profile.get("id"),
+                "display_name": name,
+                "avatar_url": profile.get("avatar_url"),
+                "is_private": profile.get("is_private", False),
+                "role": user_role,
+            },
+            "stats": {
+                "favorite_type": favorite_type,
+                "total_hours": total_hours,
+                "classes_joined": len(classes_joined),
+            },
+            "enrolled": {
+                "upcoming": upcoming_enrolled,
+                "past": past_enrolled,
+            },
+            "hosted": {
+                "upcoming": hosted_upcoming,
+                "past": hosted_past,
+            }
+        }), 200
+    except Exception as e:
+        logger.error(f"❌ Error building profile overview: {str(e)}")
+        return jsonify({"error": "Failed to fetch profile overview"}), 500
+
+@app.route("/api/classes", methods=["POST"])
+def create_class():
+    """Create a new class (staff only)"""
+    try:
+        token = request.cookies.get("sb-access-token")
+        if not token:
+            return jsonify({"error": "Not authenticated"}), 401
+        
+        # Verify user and check role from secure database table
+        user = supabase.auth.get_user(token)
+        if not user or not user.user:
+            return jsonify({"error": "Invalid token"}), 401
+        
+        user_role = get_user_role(user.user.id)
+        if user_role not in ["staff", "admin"]:
+            return jsonify({"error": "Only staff can create classes"}), 403
+        
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "No data provided"}), 400
+        
+        required_fields = ["class_name", "class_type", "instructor", "start", "end", "location", "max_participants"]
+        if not all(field in data for field in required_fields):
+            return jsonify({"error": "Missing required fields"}), 400
+        
+        # Create class in Supabase (only send columns that exist in the table)
+        class_data = {
+            "class_name": data.get("class_name"),
+            "class_type": data.get("class_type"),
+            "instructor": data.get("instructor"),
+            "start": data.get("start"),
+            "end": data.get("end"),
+            "location": data.get("location"),
+            "max_participants": data.get("max_participants"),
+        }
+        
+        response = supabase.table("classes").insert(class_data).execute()
+        created_class = response.data[0] if hasattr(response, 'data') and response.data else class_data
+        
+        if not IS_VERCEL:
+            logger.info(f"✅ Class '{data.get('class_name')}' created successfully")
+        
+        return jsonify({"class": created_class}), 201
+        
+    except Exception as e:
+        logger.error(f"❌ Error creating class: {str(e)}")
+        return jsonify({"error": "Failed to create class"}), 500
+
+@app.route("/api/classes/<class_id>", methods=["PUT"])
+def update_class(class_id):
+    """Update a class (staff only)"""
+    try:
+        token = request.cookies.get("sb-access-token")
+        if not token:
+            return jsonify({"error": "Not authenticated"}), 401
+        
+        # Verify user and check role from secure database table
+        user = supabase.auth.get_user(token)
+        if not user or not user.user:
+            return jsonify({"error": "Invalid token"}), 401
+        
+        user_role = get_user_role(user.user.id)
+        if user_role not in ["staff", "admin"]:
+            return jsonify({"error": "Only staff can edit classes"}), 403
+        
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "No data provided"}), 400
+        
+        # Update class in Supabase (only send known columns)
+        update_data = {}
+        for field in ["class_name", "class_type", "instructor", "start", "end", "location", "max_participants"]:
+            if field in data:
+                update_data[field] = data[field]
+        
+        response = supabase.table("classes").update(update_data).eq("id", class_id).execute()
+        updated_class = response.data[0] if hasattr(response, 'data') and response.data else update_data
+        
+        if not IS_VERCEL:
+            logger.info(f"✅ Class {class_id} updated successfully")
+        
+        return jsonify({"class": updated_class}), 200
+        
+    except Exception as e:
+        logger.error(f"❌ Error updating class: {str(e)}")
+        return jsonify({"error": "Failed to update class"}), 500
+
+@app.route("/api/classes/<class_id>", methods=["DELETE"])
+def delete_class(class_id):
+    """Delete a class (staff only)"""
+    try:
+        token = request.cookies.get("sb-access-token")
+        if not token:
+            return jsonify({"error": "Not authenticated"}), 401
+        
+        # Verify user and check role from secure database table
+        user = supabase.auth.get_user(token)
+        if not user or not user.user:
+            return jsonify({"error": "Invalid token"}), 401
+        
+        user_role = get_user_role(user.user.id)
+        if user_role not in ["staff", "admin"]:
+            return jsonify({"error": "Only staff can delete classes"}), 403
+        
+        # Delete class from Supabase
+        response = supabase.table("classes").delete().eq("id", class_id).execute()
+        
+        if not IS_VERCEL:
+            logger.info(f"✅ Class {class_id} deleted successfully")
+        
+        return jsonify({"message": "Class deleted successfully"}), 200
+        
+    except Exception as e:
+        logger.error(f"❌ Error deleting class: {str(e)}")
+        return jsonify({"error": "Failed to delete class"}), 500
+
+@app.route("/api/classes/<class_id>/enroll", methods=["POST"])
+def enroll_in_class(class_id):
+    """Enroll current user in a class"""
+    try:
+        token = request.cookies.get("sb-access-token")
+        if not token:
+            return jsonify({"error": "Not authenticated"}), 401
+        
+        # Verify user
+        user = supabase.auth.get_user(token)
+        if not user or not user.user:
+            return jsonify({"error": "Invalid token"}), 401
+        
+        user_id = user.user.id
+        
+        # Create authenticated client for RLS enforcement
+        auth_client = get_authenticated_client(token)
+        
+        # Check if class exists and get capacity
+        class_response = auth_client.table("classes").select("id, max_participants").eq("id", class_id).single().execute()
+        if not class_response.data:
+            return jsonify({"error": "Class not found"}), 404
+        
+        class_data = class_response.data
+        max_participants = class_data.get("max_participants", 0)
+        
+        # Check current enrollment count
+        enrollment_count_response = auth_client.table("class_enrollments").select("id", count="exact").eq("class_id", class_id).execute()
+        current_enrollments = enrollment_count_response.count if hasattr(enrollment_count_response, 'count') else 0
+        
+        if current_enrollments >= max_participants:
+            return jsonify({"error": "Class is full"}), 409
+        
+        # Check if already enrolled
+        existing_enrollment = auth_client.table("class_enrollments").select("id").eq("user_id", user_id).eq("class_id", class_id).execute()
+        if existing_enrollment.data:
+            return jsonify({"error": "Already enrolled in this class"}), 409
+        
+        # Enroll user using authenticated client (RLS policy ensures user can only enroll themselves)
+        enrollment_data = {
+            "user_id": user_id,
+            "class_id": class_id  # UUID, don't cast to int
+        }
+        
+        response = auth_client.table("class_enrollments").insert(enrollment_data).execute()
+        
+        if not IS_VERCEL:
+            logger.info(f"✅ User {user_id} enrolled in class {class_id}")
+        
+        return jsonify({
+            "message": "Successfully enrolled in class"
+        }), 201
+        
+    except Exception as e:
+        logger.error(f"❌ Error enrolling in class: {str(e)}")
+        return jsonify({"error": "Failed to enroll in class"}), 500
+
+@app.route("/api/classes/<class_id>/enroll", methods=["DELETE"])
+def unenroll_from_class(class_id):
+    """Unenroll current user from a class"""
+    try:
+        token = request.cookies.get("sb-access-token")
+        if not token:
+            return jsonify({"error": "Not authenticated"}), 401
+        
+        # Verify user
+        user = supabase.auth.get_user(token)
+        if not user or not user.user:
+            return jsonify({"error": "Invalid token"}), 401
+        
+        user_id = user.user.id
+        
+        # Create authenticated client for RLS enforcement
+        auth_client = get_authenticated_client(token)
+        
+        # Check if enrolled
+        existing_enrollment = auth_client.table("class_enrollments").select("id").eq("user_id", user_id).eq("class_id", class_id).execute()
+        if not existing_enrollment.data:
+            return jsonify({"error": "Not enrolled in this class"}), 404
+        
+        # Unenroll user using authenticated client (RLS policy ensures user can only unenroll themselves)
+        auth_client.table("class_enrollments").delete().eq("user_id", user_id).eq("class_id", class_id).execute()
+        
+        if not IS_VERCEL:
+            logger.info(f"✅ User {user_id} unenrolled from class {class_id}")
+        
+        return jsonify({"message": "Successfully unenrolled from class"}), 200
+        
+    except Exception as e:
+        logger.error(f"❌ Error unenrolling from class: {str(e)}")
+        return jsonify({"error": "Failed to unenroll from class"}), 500
+
+@app.route("/api/my-enrollments", methods=["GET"])
+def get_my_enrollments():
+    """Get current user's enrolled classes"""
+    try:
+        token = request.cookies.get("sb-access-token")
+        if not token:
+            return jsonify({"error": "Not authenticated"}), 401
+        
+        # Verify user
+        user = supabase.auth.get_user(token)
+        if not user or not user.user:
+            return jsonify({"error": "Invalid token"}), 401
+        
+        user_id = user.user.id
+        
+        # Get user's enrollments with class details joined
+        response = supabase.table("class_enrollments").select(
+            "id, enrolled_at, class_id, classes(*)"
+        ).eq("user_id", user_id).execute()
+        
+        enrollments = response.data if hasattr(response, 'data') else []
+        
+        # Transform to include class details at top level
+        enrolled_classes = []
+        for enrollment in enrollments:
+            if enrollment.get("classes"):
+                class_data = enrollment["classes"]
+                class_data["enrollment_id"] = enrollment["id"]
+                class_data["enrolled_at"] = enrollment["enrolled_at"]
+                enrolled_classes.append(class_data)
+        
+        if not IS_VERCEL:
+            logger.info(f"✅ Fetched {len(enrolled_classes)} enrollments for user {user_id}")
+        
+        return jsonify({"enrolled_classes": enrolled_classes}), 200
+        
+    except Exception as e:
+        logger.error(f"❌ Error fetching enrollments: {str(e)}")
+        return jsonify({"error": "Failed to fetch enrollments"}), 500
+
+@app.route("/api/classes/<class_id>/enrollments", methods=["GET"])
+def get_class_enrollments(class_id):
+    """Get roster for a class (user ids + display names). Respects privacy: private profiles only show name to staff."""
+    try:
+        # Check if current user is staff
+        token = request.cookies.get("sb-access-token")
+        current_user_id = None
+        is_staff = False
+        if token:
+            user = supabase.auth.get_user(token)
+            if user and user.user:
+                current_user_id = user.user.id
+                is_staff = get_user_role(current_user_id) in ["staff", "admin"]
+        
+        # Fetch enrollments for class
+        resp = supabase.table("class_enrollments").select("user_id, enrolled_at").eq("class_id", class_id).order("enrolled_at", desc=False).execute()
+        enrollments = resp.data if hasattr(resp, 'data') else []
+
+        # Extract user IDs and fetch profiles
+        user_ids = [row.get("user_id") for row in enrollments if row.get("user_id")]
+        profiles = {}
+        if user_ids:
+            prof_resp = supabase.table("profiles").select("id, display_name, is_private").in_("id", user_ids).execute()
+            prof_data = prof_resp.data if hasattr(prof_resp, 'data') else []
+            for prof in prof_data:
+                profiles[prof.get("id")] = prof
+
+        # Enrich with user details, respecting privacy
+        detailed = []
+        for row in enrollments:
+            user_id = row.get("user_id")
+            user_info = {"user_id": user_id, "enrolled_at": row.get("enrolled_at")}
+            
+            profile = profiles.get(user_id, {})
+            is_private = profile.get("is_private", False)
+            display_name = profile.get("display_name")
+            
+            # Only show display_name if public or if current user is staff
+            if is_private and not is_staff:
+                display_name = None
+            
+            user_info["display_name"] = display_name or "User"
+            detailed.append(user_info)
+
+        return jsonify({"enrollments": detailed}), 200
+    except Exception as e:
+        logger.error(f"❌ Error fetching class enrollments: {str(e)}")
+        return jsonify({"error": "Failed to fetch class enrollments"}), 500
+
+@app.route("/api/classes/<class_id>/enrollments/<user_id>", methods=["DELETE"])
+def remove_user_from_class(class_id, user_id):
+    """Remove a user from a class (staff only)"""
+    try:
+        token = request.cookies.get("sb-access-token")
+        if not token:
+            return jsonify({"error": "Not authenticated"}), 401
+        
+        # Verify current user is staff
+        current_user = supabase.auth.get_user(token)
+        if not current_user or not current_user.user:
+            return jsonify({"error": "Invalid token"}), 401
+        
+        current_user_role = get_user_role(current_user.user.id)
+        if current_user_role not in ["staff", "admin"]:
+            return jsonify({"error": "Only staff can remove users from classes"}), 403
+        
+        # Check if user is enrolled
+        existing_enrollment = supabase.table("class_enrollments").select("id").eq("user_id", user_id).eq("class_id", class_id).execute()
+        if not existing_enrollment.data:
+            return jsonify({"error": "User not enrolled in this class"}), 404
+        
+        # Remove user from class
+        supabase.table("class_enrollments").delete().eq("user_id", user_id).eq("class_id", class_id).execute()
+        
+        if not IS_VERCEL:
+            logger.info(f"✅ Staff {current_user.user.id} removed user {user_id} from class {class_id}")
+        
+        return jsonify({"message": "User removed from class"}), 200
+        
+    except Exception as e:
+        logger.error(f"❌ Error removing user from class: {str(e)}")
+        return jsonify({"error": "Failed to remove user from class"}), 500
 
 # For local development
 if __name__ == "__main__":

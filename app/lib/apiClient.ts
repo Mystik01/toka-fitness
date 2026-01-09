@@ -1,7 +1,7 @@
 // lib/apiClient.ts
 
 // Get the correct API URL based on environment
-function getApiUrl(): string {
+export function getApiUrl(): string {
   // In production/Vercel, use relative URLs since Flask is at /api/*
   if (typeof window !== 'undefined') {
     // Client-side

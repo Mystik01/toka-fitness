@@ -17,13 +17,49 @@ export async function middleware(request: NextRequest) {
                       pathname.startsWith('/auth/forgot') ||
                       pathname.startsWith('/auth/reset-password')
   
+  // Onboarding route
+  const isOnboardingRoute = pathname.startsWith('/auth/onboarding')
+  
   // If accessing a protected route without a token, redirect to login
   if (isProtectedRoute && !token) {
     const url = request.nextUrl.clone()
     url.pathname = '/auth/login'
     // Add redirect parameter so user can be sent back after login
-    url.searchParams.set('redirect', pathname)
+    const fullPath = `${pathname}${request.nextUrl.search || ''}`
+    url.searchParams.set('redirect', fullPath)
+    // If this was a class detail link, add a friendly notice
+    if (pathname.startsWith('/dashboard/classes')) {
+      url.searchParams.set('notice', 'signin_required_for_class')
+    }
     return NextResponse.redirect(url)
+  }
+  
+  // Check if user needs onboarding (only for authenticated users accessing protected routes)
+  if (isProtectedRoute && token && !isOnboardingRoute) {
+    try {
+      // Fetch user data to check if they have completed onboarding
+      // In production (Vercel), use the current request's origin; in dev, use localhost:5328
+      const apiUrl = process.env.VERCEL ? request.nextUrl.origin : (process.env.API_URL || 'http://localhost:5328');
+      const response = await fetch(`${apiUrl}/api/me`, {
+        headers: {
+          'Cookie': `sb-access-token=${token}`,
+        },
+      });
+      
+      if (response.ok) {
+        const userData = await response.json();
+        const hasCompletedOnboarding = userData.user_metadata?.first_name || userData.user_metadata?.display_name;
+        
+        if (!hasCompletedOnboarding) {
+          const url = request.nextUrl.clone();
+          url.pathname = '/auth/onboarding';
+          return NextResponse.redirect(url);
+        }
+      }
+    } catch (error) {
+      console.error('Error checking onboarding status:', error);
+      // Continue anyway to avoid blocking user
+    }
   }
   
   // If accessing auth routes with a valid token, redirect to dashboard or original destination
